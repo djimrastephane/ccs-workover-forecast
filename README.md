@@ -1,5 +1,7 @@
 # CCS Workover Forecast
 
+[![CI](https://github.com/djimrastephane/ccs-workover-forecast/actions/workflows/ci.yml/badge.svg)](https://github.com/djimrastephane/ccs-workover-forecast/actions/workflows/ci.yml)
+
 A reliability-driven Monte Carlo simulator that estimates future workover and intervention demand for CCS wells over a 20–40 year lifecycle.
 
 Inspired by the methodology in **SPE-232388-MS** — *"Methodology for Estimating CCS Wells Workover Frequency"* — and built in Python/Streamlit.
