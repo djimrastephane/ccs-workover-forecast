@@ -56,9 +56,15 @@ def _process_simulation(
             for _, event in immediate.iterrows():
                 campaign_counter += 1
                 is_rig = event['intervention_type'] == 'full_workover'
+                barrier_class = (
+                    event['barrier_class']
+                    if 'barrier_class' in event.index
+                    else 'production'
+                )
+                c_type_actual = 'emergency' if barrier_class == 'safety' else 'immediate'
                 campaigns.append(_single_campaign(
                     sim_id, campaign_counter, year,
-                    'immediate', event, mob_cost, is_rig,
+                    c_type_actual, event, mob_cost, is_rig,
                 ))
 
             for _, event in year_df[year_df['immediate_or_deferred'] == 'deferred'].iterrows():

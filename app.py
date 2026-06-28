@@ -5,7 +5,14 @@ from src.simulation import run_simulation
 from src.config_loader import (
     load_component_assumptions, load_intervention_rules,
     load_cost_assumptions, load_scenario_config,
+    load_assumption_quality,
 )
+from src.qa import compute_qa_metrics, generate_qa_warnings
+from src.explainability import (
+    explain_cost_driver, explain_peak_demand,
+    explain_campaign_count, explain_highest_risk,
+)
+from src.calibration import compute_calibration_score, compute_uncertainty_decomposition
 from src.reporting import (
     build_annual_forecast, build_component_summary, build_scenario_comparison,
     get_highest_risk_component, format_cost,
@@ -23,6 +30,7 @@ from src.plotting import (
     plot_campaign_gantt, plot_campaign_timeline, plot_campaign_size_distribution,
     plot_deferred_queue_evolution, plot_deferred_queue, plot_immediate_vs_deferred,
     plot_scenario_comparison, plot_scenario_workovers,
+    plot_tornado_chart,
 )
 
 # ── Page config (must be first) ───────────────────────────────────────────────
@@ -252,6 +260,17 @@ with st.sidebar:
     intervention_threshold = threshold_pct / 100.0
     st.caption(f'Current threshold: **{threshold_pct}%** cumulative failure probability')
 
+    st.markdown('<div class="sb-section">🎛 Model Mode</div>', unsafe_allow_html=True)
+    model_mode = st.radio(
+        'Model Mode',
+        options=['Intervention Planning', 'Reliability Forecast'],
+        label_visibility='collapsed',
+        help=(
+            'Intervention Planning: full batching and deferred queue logic. '
+            'Reliability Forecast: pure component reliability view without scheduling constraints.'
+        ),
+    )
+
     st.markdown('<div class="sb-section">📋 Campaign Rules</div>', unsafe_allow_html=True)
     campaign_threshold = st.slider(
         'Campaign Threshold (wells)', 2, 15, 5,
@@ -306,9 +325,18 @@ if run_btn:
         operating_years=operating_years, n_simulations=n_simulations,
         scenario_id=scenario_id, failure_prob_multiplier=fpm,
         intervention_threshold=intervention_threshold,
+        campaign_threshold=campaign_threshold, max_deferral_years=max_deferral_years,
     )
     narrative = generate_executive_narrative(
         failure_df, annual_forecast, campaign_log, lifecycle_summary, params)
+
+    assumption_quality = load_assumption_quality()
+    calibration_score  = compute_calibration_score(assumption_quality)
+    qa_params = {**params, 'campaign_threshold': campaign_threshold,
+                 'max_deferral_years': max_deferral_years}
+    qa_metrics  = compute_qa_metrics(failure_df, campaign_log, lifecycle_summary, qa_params)
+    qa_warnings = generate_qa_warnings(qa_metrics, qa_params)
+    tornado_df  = compute_uncertainty_decomposition(contributions, component_assumptions_for_heatmap)
 
     st.session_state.results = dict(
         failure_df=failure_df, campaign_log=campaign_log, annual_costs=annual_costs,
@@ -316,6 +344,8 @@ if run_btn:
         component_summary=component_summary, highest_risk=highest_risk,
         health_scores=health_scores, contributions=contributions,
         narrative=narrative, params=params, heatmap_df=heatmap_df,
+        assumption_quality=assumption_quality, calibration_score=calibration_score,
+        qa_metrics=qa_metrics, qa_warnings=qa_warnings, tornado_df=tornado_df,
     )
 
 # ── Landing state ─────────────────────────────────────────────────────────────
@@ -350,6 +380,11 @@ contributions   = r['contributions']
 narrative       = r['narrative']
 params          = r['params']
 heatmap_df      = r.get('heatmap_df', pd.DataFrame())
+assumption_quality = r.get('assumption_quality', pd.DataFrame())
+calibration_score  = r.get('calibration_score', {})
+qa_metrics         = r.get('qa_metrics', {})
+qa_warnings        = r.get('qa_warnings', [])
+tornado_df         = r.get('tornado_df', pd.DataFrame())
 
 scen_label = _SCENARIO_LABELS.get(params['scenario_id'], params['scenario_id'])
 fpm        = params.get('failure_prob_multiplier', 1.0)
@@ -362,6 +397,7 @@ tabs = st.tabs([
     '🏗  Campaign Planning',
     '💰  Economics',
     '🔀  Scenario Comparison',
+    '🔬  Model QA',
     '⚙️  Assumptions',
 ])
 
@@ -482,6 +518,61 @@ with tabs[0]:
         else:
             st.info('Run simulation to generate findings.')
 
+    # ── Mode Comparison Panel ─────────────────────────────────────────────────
+    if model_mode == 'Reliability Forecast':
+        section('MODEL MODE — RELIABILITY FORECAST vs INTERVENTION PLANNING')
+        m1, m2 = st.columns(2)
+        with m1:
+            st.markdown("""
+            <div style="background:#0f172a;border:1px solid #1e293b;border-top:3px solid #3b82f6;
+                        border-radius:0 0 8px 8px;padding:1rem 1.2rem;">
+              <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+                          color:#3b82f6;margin-bottom:.75rem;">Reliability Forecast View</div>
+              <p style="color:#94a3b8;font-size:.78rem;margin:0;line-height:1.65;">
+                Pure component MTTF-based view. Shows <b style="color:#e2e8f0;">when</b> components
+                are expected to fail based on the exponential reliability model.<br><br>
+                Assumes all interventions occur at failure time — no batching,
+                no deferred queue, no campaign optimisation.
+              </p>
+            </div>""", unsafe_allow_html=True)
+        with m2:
+            st.markdown("""
+            <div style="background:#0f172a;border:1px solid #1e293b;border-top:3px solid #10b981;
+                        border-radius:0 0 8px 8px;padding:1rem 1.2rem;">
+              <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+                          color:#10b981;margin-bottom:.75rem;">Intervention Planning View (Active)</div>
+              <p style="color:#94a3b8;font-size:.78rem;margin:0;line-height:1.65;">
+                Adds campaign batching, deferred queue, and barrier-class prioritisation.
+                Safety failures → emergency mobilisation. Production failures → deferred batch.
+                Includes rig mob cost amortisation and CO₂ injection penalty.<br><br>
+                Switch sidebar to <b style="color:#e2e8f0;">Intervention Planning</b> to simulate this mode.
+              </p>
+            </div>""", unsafe_allow_html=True)
+
+    # ── KPI Traceability ──────────────────────────────────────────────────────
+    section('KPI TRACEABILITY — WHY ARE THESE NUMBERS WHAT THEY ARE?')
+    component_assumptions_loaded = load_component_assumptions()
+
+    with st.expander('What is driving the lifecycle cost?'):
+        lines = explain_cost_driver(contributions, component_assumptions_loaded, params)
+        for ln in lines:
+            st.markdown(ln)
+
+    with st.expander('Why is workover demand peaking when it does?'):
+        lines = explain_peak_demand(annual_forecast, failure_df, params)
+        for ln in lines:
+            st.markdown(ln)
+
+    with st.expander('Why does the model predict this many campaigns?'):
+        lines = explain_campaign_count(campaign_log, ls, params)
+        for ln in lines:
+            st.markdown(ln)
+
+    with st.expander('Why is this component the highest risk?'):
+        lines = explain_highest_risk(highest_risk, contributions, component_assumptions_loaded, failure_df)
+        for ln in lines:
+            st.markdown(ln)
+
 # ═════════════════════════════════════════════════════════════════════════════
 # TAB 2 — LIFECYCLE FORECAST
 # ═════════════════════════════════════════════════════════════════════════════
@@ -572,6 +663,18 @@ with tabs[2]:
     with st.expander('Component Failure Detail Table'):
         if not component_summary.empty:
             st.dataframe(component_summary, use_container_width=True)
+
+    with st.expander('Risk Matrix — Data Traceability'):
+        st.markdown(
+            '**Data source:** Component failure probabilities are derived from MTTF triangular '
+            'distributions sampled across all Monte Carlo simulations. '
+            'Consequence levels are defined in `data/assumptions/component_failure_assumptions.csv`. '
+            'The failure probability multiplier for this scenario is **'
+            f'{params.get("failure_prob_multiplier", 1.0):.2f}×** (applied to all P50 MTTF values).\n\n'
+            '**Limitation:** The risk matrix uses scenario-adjusted P50 MTTF, not simulated failure '
+            'counts per well, and should be interpreted as a relative ranking tool, not an absolute '
+            'probability estimate.'
+        )
 
 # ═════════════════════════════════════════════════════════════════════════════
 # TAB 4 — CAMPAIGN PLANNING
@@ -664,6 +767,20 @@ with tabs[4]:
         if not annual_costs.empty:
             st.dataframe(annual_costs, use_container_width=True)
 
+    with st.expander('Cost Breakdown — Data Traceability'):
+        st.markdown(
+            '**Mobilisation cost** = rig spread + logistics + permit fees. '
+            'Loaded from `data/assumptions/cost_assumptions.csv` for the active scenario. '
+            'Base case mob cost: **$2.0M/campaign**.\n\n'
+            '**Intervention cost** = per-well equipment, fluids, and rig time. '
+            'Full workover = **$2.5M**; rigless = **$0.25M** per event (base case).\n\n'
+            '**Deferred injection penalty** = CO₂ storage revenue lost while a well awaits '
+            'a deferred batch campaign. Rate: **$50k/day/well** (P50 carbon credit proxy — '
+            'low confidence, expert judgement).\n\n'
+            '**Uncertainty band (P10–P90):** driven primarily by MTTF spread on high-cost '
+            'components (packer, tubing, cement barrier). See Model QA tab for full decomposition.'
+        )
+
 # ═════════════════════════════════════════════════════════════════════════════
 # TAB 6 — SCENARIO COMPARISON
 # ═════════════════════════════════════════════════════════════════════════════
@@ -723,9 +840,261 @@ with tabs[5]:
             st.dataframe(comparison_df[show].style.format(fmt), use_container_width=True)
 
 # ═════════════════════════════════════════════════════════════════════════════
-# TAB 7 — ASSUMPTIONS
+# TAB 7 — MODEL QA
 # ═════════════════════════════════════════════════════════════════════════════
 with tabs[6]:
+    # ── Calibration Score ─────────────────────────────────────────────────────
+    section('MODEL CALIBRATION SCORE')
+    cs = calibration_score
+    cal_score   = cs.get('score', 0)
+    cal_level   = cs.get('level', 'Not computed')
+    cal_color   = cs.get('color', 'red')
+    cal_gaps    = cs.get('critical_gaps', [])
+    cal_break   = cs.get('breakdown', {})
+    n_assum     = cs.get('n_assumptions', 0)
+
+    color_hex = {'green': '#10b981', 'amber': '#f59e0b', 'red': '#ef4444'}.get(cal_color, '#64748b')
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(kpi_card('Calibration Score', f'{cal_score:.0f}/100', cal_level, cal_color),
+                    unsafe_allow_html=True)
+    with c2:
+        st.markdown(kpi_card('Assumptions Reviewed', str(n_assum), 'In quality register', 'blue'),
+                    unsafe_allow_html=True)
+    with c3:
+        st.markdown(kpi_card('Critical Gaps', str(len(cal_gaps)),
+                             'High-sensitivity / low-confidence parameters', 'red'),
+                    unsafe_allow_html=True)
+    with c4:
+        lit_n = cal_break.get('literature', 0) + cal_break.get('oreda', 0)
+        exp_n = cal_break.get('expert_judgement', 0) + cal_break.get('synthetic_assumption', 0)
+        st.markdown(kpi_card('Literature-backed', f'{lit_n}/{n_assum}',
+                             f'{exp_n} expert/synthetic assumptions', 'amber'),
+                    unsafe_allow_html=True)
+
+    st.markdown('<div style="height:.5rem"></div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="background:#0f172a;border-left:3px solid {color_hex};border-radius:0 6px 6px 0;'
+        f'padding:.7rem 1rem;font-size:.8rem;color:#94a3b8;">'
+        f'<b style="color:#e2e8f0;">Score interpretation:</b> The calibration score weights each '
+        f'assumption by (source quality × confidence × sensitivity to output). '
+        f'High-sensitivity assumptions with expert-judgement or synthetic sources reduce the score. '
+        f'A score &lt;50 means at least one high-sensitivity parameter lacks literature backing — '
+        f'outputs should be treated as order-of-magnitude estimates, not engineering commitments.'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Critical Gaps table ───────────────────────────────────────────────────
+    if cal_gaps:
+        section('CRITICAL CALIBRATION GAPS')
+        st.caption(
+            'These parameters have high output sensitivity but low source quality. '
+            'They are the top priority for field calibration or literature review.'
+        )
+        gaps_df = pd.DataFrame(cal_gaps)[['parameter', 'component', 'source', 'confidence', 'sensitivity', 'notes']]
+        def _highlight_gaps(row):
+            return ['background-color:#1f0000;color:#fca5a5' if row['confidence'] == 'low' else ''] * len(row)
+        st.dataframe(gaps_df.style.apply(_highlight_gaps, axis=1), use_container_width=True)
+
+    # ── Uncertainty tornado ───────────────────────────────────────────────────
+    section('UNCERTAINTY DECOMPOSITION — MTTF SPREAD CONTRIBUTION TO COST VARIANCE')
+    if not tornado_df.empty:
+        st.plotly_chart(plot_tornado_chart(tornado_df), use_container_width=True, key='qa_tornado')
+        st.caption(
+            'Proxy method: uncertainty contribution = cost share × normalised MTTF spread (P90−P10)/P10. '
+            'This is an approximation — full variance decomposition would require re-running the simulation '
+            'with clamped MTTF distributions. Use for ranking purposes only.'
+        )
+    else:
+        st.info('No uncertainty decomposition data — run simulation first.')
+
+    # ── Validation Metrics grid ───────────────────────────────────────────────
+    section('VALIDATION METRICS — MODEL SANITY CHECKS')
+    if qa_metrics:
+        cols_vm = st.columns(3)
+        for i, (key, m) in enumerate(qa_metrics.items()):
+            val  = m.get('value', 0)
+            lo, hi = m.get('norm', (0, 1))
+            in_range = lo <= val <= hi
+            chip_color = '#10b981' if in_range else '#ef4444'
+            chip_label = 'PASS' if in_range else 'OUT OF RANGE'
+            with cols_vm[i % 3]:
+                st.markdown(f"""
+                <div style="background:#111827;border:1px solid #1e293b;border-radius:6px;
+                            padding:.8rem 1rem;margin-bottom:.5rem;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem;">
+                    <span style="color:#94a3b8;font-size:.7rem;font-weight:600;">{m.get('label','')}</span>
+                    <span style="background:{chip_color}22;color:{chip_color};font-size:.58rem;
+                                 font-weight:700;padding:.1rem .4rem;border-radius:3px;">{chip_label}</span>
+                  </div>
+                  <div style="font-size:1.4rem;font-weight:700;color:#f1f5f9;">{val}</div>
+                  <div style="color:#475569;font-size:.65rem;margin-top:.25rem;">{m.get('unit','')} &nbsp;|&nbsp; expected {lo}–{hi}</div>
+                  <div style="color:#475569;font-size:.6rem;margin-top:.3rem;line-height:1.5;">{m.get('description','')}</div>
+                </div>""", unsafe_allow_html=True)
+    else:
+        st.info('No validation metrics computed. Run the simulation first.')
+
+    # ── Sanity Warnings ───────────────────────────────────────────────────────
+    section('SANITY CHECKS & WARNINGS')
+    sev_colors = {'critical': '#ef4444', 'warning': '#f59e0b', 'pass': '#10b981'}
+    sev_icons  = {'critical': '🔴', 'warning': '🟡', 'pass': '🟢'}
+    for w in qa_warnings:
+        sev  = w.get('severity', 'warning')
+        col  = sev_colors.get(sev, '#64748b')
+        icon = sev_icons.get(sev, '⚪')
+        st.markdown(f"""
+        <div style="background:#0f172a;border:1px solid {col}40;border-left:3px solid {col};
+                    border-radius:0 6px 6px 0;padding:.75rem 1rem;margin-bottom:.5rem;">
+          <div style="font-size:.7rem;font-weight:700;color:{col};margin-bottom:.3rem;">
+            {icon} {sev.upper()} — {w.get('metric','').replace('_',' ')}
+          </div>
+          <div style="color:#94a3b8;font-size:.78rem;line-height:1.6;">{w.get('message','')}</div>
+          <div style="color:#475569;font-size:.65rem;margin-top:.35rem;font-style:italic;">
+            Reference: {w.get('reference','')}
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+    # ── Campaign Type Breakdown ───────────────────────────────────────────────
+    if not campaign_log.empty:
+        section('CAMPAIGN TYPE BREAKDOWN')
+        ct_stats = (
+            campaign_log.groupby('campaign_type')
+            .agg(
+                count=('campaign_id', 'count'),
+                avg_wells=('n_wells', 'mean'),
+                total_cost_m=('total_campaign_cost', lambda x: x.sum() / 1e6),
+            )
+            .round(2).reset_index()
+        )
+        ct_stats['% of campaigns'] = (ct_stats['count'] / ct_stats['count'].sum() * 100).round(1)
+        st.dataframe(ct_stats, use_container_width=True)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 8 — ASSUMPTIONS
+# ═════════════════════════════════════════════════════════════════════════════
+with tabs[7]:
+    # ── Assumption Quality Register ───────────────────────────────────────────
+    section('ASSUMPTION QUALITY REGISTER')
+    st.caption(
+        'Each assumption is tagged with its source type, confidence level, and output sensitivity. '
+        'This register supports peer review, regulatory audit, and targeted data acquisition.'
+    )
+    if not assumption_quality.empty:
+        def _style_quality_row(row):
+            styles = [''] * len(row)
+            col_names = list(row.index)
+            if 'source_type' in col_names:
+                si = col_names.index('source_type')
+                src = str(row.iloc[si]).lower()
+                if src in ('synthetic_assumption', 'expert_judgement'):
+                    styles[si] = 'color:#f59e0b;font-weight:600'
+            if 'sensitivity_level' in col_names:
+                hi = col_names.index('sensitivity_level')
+                if 'high' in str(row.iloc[hi]).lower():
+                    styles[hi] = 'color:#ef4444;font-weight:600'
+            if 'confidence_level' in col_names:
+                ci = col_names.index('confidence_level')
+                if str(row.iloc[ci]).lower() == 'low':
+                    styles[ci] = 'color:#ef4444'
+            return styles
+
+        st.dataframe(
+            assumption_quality.style.apply(_style_quality_row, axis=1),
+            use_container_width=True,
+        )
+        col_leg1, col_leg2 = st.columns(2)
+        with col_leg1:
+            st.markdown("""
+            <div style="font-size:.68rem;color:#475569;line-height:1.9;">
+            <b style="color:#94a3b8;">Source types (quality ranking):</b><br>
+            🟢 <b>OREDA</b> (1.00) → <b>literature</b> (0.80) → <b>operator_analogue</b> (0.65)
+            → 🟡 <b>expert_judgement</b> (0.40) → 🔴 <b>synthetic_assumption</b> (0.10)
+            </div>""", unsafe_allow_html=True)
+        with col_leg2:
+            st.markdown("""
+            <div style="font-size:.68rem;color:#475569;line-height:1.9;">
+            <b style="color:#94a3b8;">Sensitivity weight:</b><br>
+            🔴 <b>high impact</b> (1.0) — dominant in calibration score<br>
+            🟡 <b>medium impact</b> (0.6) — moderate contribution<br>
+            🟢 <b>low impact</b> (0.3) — minor influence on outputs
+            </div>""", unsafe_allow_html=True)
+    else:
+        st.info('Assumption quality register not loaded — check data/assumptions/assumption_quality.csv')
+
+    # ── Engineering Defensibility Panel ──────────────────────────────────────
+    section('ENGINEERING DEFENSIBILITY')
+    d_left, d_right = st.columns(2)
+    with d_left:
+        st.markdown("""
+        <div style="background:#0f172a;border:1px solid #1e293b;border-top:3px solid #10b981;
+                    border-radius:0 0 8px 8px;padding:1.1rem 1.2rem;">
+          <div style="font-size:.65rem;font-weight:700;color:#10b981;text-transform:uppercase;
+                      letter-spacing:.1em;margin-bottom:.75rem;">Model Strengths</div>
+          <ul style="color:#94a3b8;font-size:.78rem;line-height:2.0;margin:0;padding-left:1.2rem;">
+            <li>Vectorised Monte Carlo simulation — P10/P50/P90 output uncertainty quantified</li>
+            <li>MTTF triangular distribution — captures epistemic uncertainty in component life</li>
+            <li>Bathtub curve lifecycle phases — infant mortality, useful life, and wear-out modelled explicitly</li>
+            <li>Barrier-class hierarchy — safety, production, monitoring, and flow assurance treated differently</li>
+            <li>Emergency vs deferred campaign distinction — reflects real operational response logic</li>
+            <li>Deferred injection penalty — captures CO₂ storage revenue at risk</li>
+            <li>Assumption quality register — every parameter tagged with source type and confidence</li>
+            <li>Scenario comparison — 5 scenarios covering corrosion, cost, and design variability</li>
+          </ul>
+        </div>""", unsafe_allow_html=True)
+    with d_right:
+        st.markdown("""
+        <div style="background:#0f172a;border:1px solid #1e293b;border-top:3px solid #ef4444;
+                    border-radius:0 0 8px 8px;padding:1.1rem 1.2rem;">
+          <div style="font-size:.65rem;font-weight:700;color:#ef4444;text-transform:uppercase;
+                      letter-spacing:.1em;margin-bottom:.75rem;">Model Limitations</div>
+          <ul style="color:#94a3b8;font-size:.78rem;line-height:2.0;margin:0;padding-left:1.2rem;">
+            <li>No CCS-specific field calibration data — all MTTF values from analogues or literature</li>
+            <li>Component failures assumed independent — correlated degradation (e.g. tubing + packer) not modelled</li>
+            <li>Cement barrier MTTF is synthetic — CO₂ carbonation data from pilots only</li>
+            <li>Injectivity impairment: highly site-specific, depends on brine chemistry not captured</li>
+            <li>Cost assumptions are North Sea analogues — may not apply to other geographies</li>
+            <li>No reservoir geomechanics — pressure effects on wellbore integrity not included</li>
+            <li>Carbon credit pricing ($50k/day) is highly uncertain — not used for decision-making</li>
+            <li>Single-well barrier model — does not capture multi-well interference or shared infrastructure</li>
+          </ul>
+        </div>""", unsafe_allow_html=True)
+
+    # ── How to Challenge ─────────────────────────────────────────────────────
+    section('HOW TO CHALLENGE THIS MODEL')
+    st.markdown("""
+    <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:1.1rem 1.3rem;">
+      <p style="color:#94a3b8;font-size:.78rem;line-height:1.9;margin:0;">
+      <b style="color:#e2e8f0;">1. Replace synthetic assumptions:</b>
+      Open <code>data/assumptions/assumption_quality.csv</code> and identify parameters flagged as
+      <code>synthetic_assumption</code> or <code>expert_judgement</code> with high sensitivity.
+      These should be the first targets for asset-specific data collection or literature review.<br><br>
+
+      <b style="color:#e2e8f0;">2. Calibrate against field data:</b>
+      If historical workover records exist, compare the simulated workover rate
+      (<i>workovers_per_well</i> in Model QA) against the observed rate.
+      Adjust P10/P90 MTTF values in <code>data/assumptions/component_failure_assumptions.csv</code>
+      until the P50 simulated rate matches the historical mean.<br><br>
+
+      <b style="color:#e2e8f0;">3. Stress-test critical gaps:</b>
+      Manually vary the packer and cement MTTF P10 values by ±30% and observe the change in
+      P50/P90 lifecycle cost. If the cost range exceeds 2×, the model is highly sensitive to
+      these assumptions and calibration is essential before using outputs for CAPEX decisions.<br><br>
+
+      <b style="color:#e2e8f0;">4. Validate campaign logic:</b>
+      Compare Model QA → Campaign Frequency and Average Campaign Size against your operator's
+      historical campaign records. If the simulated frequency is systematically higher or lower,
+      adjust the campaign threshold slider accordingly.<br><br>
+
+      <b style="color:#e2e8f0;">5. Apply to a specific asset:</b>
+      Replace the scenario configuration in <code>data/assumptions/scenario_config.csv</code>
+      with your asset's actual failure probability multiplier, offshore flag, and scssv configuration.
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Raw assumption tables ─────────────────────────────────────────────────
     section('COMPONENT FAILURE ASSUMPTIONS')
     st.dataframe(load_component_assumptions(), use_container_width=True)
 

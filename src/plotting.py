@@ -751,3 +751,58 @@ def plot_scenario_workovers(comparison_df: pd.DataFrame) -> go.Figure:
     fig.update_layout(title='Total Workovers by Scenario',
                       xaxis_title='', yaxis_title='Workovers', barmode='group')
     return _dark(fig)
+
+
+def plot_tornado_chart(tornado_df: 'pd.DataFrame') -> go.Figure:
+    """MTTF uncertainty contribution tornado chart."""
+    import pandas as pd
+    if tornado_df.empty:
+        return go.Figure()
+
+    df = tornado_df.head(8).sort_values('uncertainty_pct')
+    bar_colors = [
+        '#ef4444' if b == 'safety'
+        else '#f59e0b' if b == 'production'
+        else '#10b981' if b == 'monitoring'
+        else '#3b82f6'
+        for b in df['barrier_class']
+    ]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=df['display_name'],
+        x=df['uncertainty_pct'],
+        orientation='h',
+        marker_color=bar_colors,
+        text=[f"{v:.0f}%" for v in df['uncertainty_pct']],
+        textposition='outside',
+        textfont=dict(color='#94a3b8', size=11),
+        hovertemplate=(
+            '<b>%{y}</b><br>'
+            'Uncertainty contribution: %{x:.1f}%<br>'
+            'MTTF range: P10=%{customdata[0]:.0f}yr / P90=%{customdata[1]:.0f}yr<br>'
+            'Cost contribution: %{customdata[2]:.0f}% of lifecycle cost'
+            '<extra></extra>'
+        ),
+        customdata=df[['mttf_p10', 'mttf_p90', 'cost_pct']].values,
+    ))
+
+    fig.update_layout(
+        title=dict(
+            text='MTTF Uncertainty Contribution to Lifecycle Cost Variance',
+            font=dict(size=13, color='#e2e8f0'),
+        ),
+        xaxis=dict(
+            title='% contribution to output uncertainty (proxy)',
+            color='#94a3b8',
+            gridcolor='#1e293b',
+            range=[0, df['uncertainty_pct'].max() * 1.25],
+        ),
+        yaxis=dict(color='#e2e8f0', tickfont=dict(size=11)),
+        paper_bgcolor='#0f172a',
+        plot_bgcolor='#0f172a',
+        font=dict(color='#94a3b8'),
+        margin=dict(l=160, r=80, t=50, b=40),
+        height=380,
+    )
+    return fig

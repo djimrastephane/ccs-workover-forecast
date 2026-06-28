@@ -42,3 +42,11 @@ def load_intervention_rules() -> pd.DataFrame:
         return pd.read_csv(_path('intervention_rules.csv'))
     except FileNotFoundError:
         return pd.DataFrame()
+
+
+def load_assumption_quality() -> pd.DataFrame:
+    """Load assumption quality register metadata."""
+    try:
+        return pd.read_csv(_path('assumption_quality.csv'))
+    except FileNotFoundError:
+        return pd.DataFrame()
