@@ -67,9 +67,10 @@ ccs-workover-forecast/
 ```
 Well population
   → MTTF sampling          (triangular P10/P90 per simulation per component)
-  → Bathtub curve          (infant 1.5× · useful life 1.0× · wear-out up to 3.0×)
-  → Bernoulli failure trials + preventive threshold events
-  → Barrier hierarchy      (safety→immediate · monitoring→deferrable · flow assurance→rigless)
+  → Bathtub curve          (infant 1.5× · useful life 1.0× · wear-out up to 1.8× linear)
+  → Bernoulli failure trials + detection probability → planned vs reactive
+  → Threshold preventive events (cumulative P ≥ 90% → scheduled inspection)
+  → Barrier hierarchy      (safety reactive→immediate · preventive→deferrable · monitoring→deferrable)
   → Campaign batching      (deferred queue + size/age triggers)
   → Economics              (per-event cost + mob overhead + deferred injection penalty)
   → P10/P50/P90 outputs
@@ -102,21 +103,24 @@ All assumptions live in `data/assumptions/`. Edit the CSVs to change reliability
 | `default_duration_days` | Typical intervention duration |
 | `injector_only` | Component only present on injection wells |
 | `trsv_only` | Component only enabled when TRSV/SCSSV is active (offshore config) |
+| `detection_prob` | Probability that a developing failure is detected before it becomes reactive |
 
 Ten components are modelled across four barrier classes:
 
-| Component | Barrier class | P10 MTTF | P90 MTTF | Intervention type |
-|---|---|---|---|---|
-| TRSV / SCSSV | Safety | 30 yr | 65 yr | Rigless |
-| Cement Barrier | Safety | 30 yr | 70 yr | Full workover |
-| Casing | Safety | 40 yr | 80 yr | Full workover |
-| Tubing String | Production | 35 yr | 55 yr | Full workover |
-| Injection Packer | Production | 22 yr | 38 yr | Full workover |
-| Wellhead | Production | 45 yr | 75 yr | Light intervention |
-| Tree | Production | 40 yr | 70 yr | Light intervention |
-| Injectivity / Flow Assurance | Flow assurance | 8 yr | 20 yr | Rigless (escalates) |
-| P/T Gauge | Monitoring | 15 yr | 26 yr | Rigless |
-| Fiber Optics | Monitoring | 12 yr | 26 yr | Rigless |
+| Component | Barrier class | P10 MTTF | P90 MTTF | Intervention type | Detection prob |
+|---|---|---|---|---|---|
+| TRSV / SCSSV | Safety | 40 yr | 90 yr | Rigless | 70% |
+| Cement Barrier | Safety | 50 yr | 120 yr | Full workover | 25% |
+| Casing | Safety | 60 yr | 150 yr | Full workover | 30% |
+| Tubing String | Production | 35 yr | 55 yr | Full workover | 40% |
+| Injection Packer | Production | 25 yr | 50 yr | Full workover | 35% |
+| Wellhead | Production | 45 yr | 75 yr | Light intervention | 60% |
+| Tree | Production | 40 yr | 70 yr | Light intervention | 55% |
+| Injectivity / Flow Assurance | Flow assurance | 8 yr | 20 yr | Rigless (escalates) | 50% |
+| P/T Gauge | Monitoring | 15 yr | 26 yr | Rigless | 90% |
+| Fiber Optics | Monitoring | 12 yr | 26 yr | Rigless | 85% |
+
+Safety barriers (TRSV, Cement, Casing) have long MTTF because they are designed to be the last line of defence — failures are rare, high-consequence events, not routine cost drivers. Detection probability is lower for safety barriers because defects (micro-annuli, casing corrosion) develop below the surface and are hard to detect without integrity testing.
 
 ### Reliability model
 
@@ -132,9 +136,9 @@ A **bathtub curve lifecycle multiplier** is applied on top of the base probabili
 |---|---|---|---|
 | Infant mortality | 1–2 | 1.5× | Installation damage, commissioning defects, poor packer setting |
 | Useful life | 3–70% of field life | 1.0× | Random, uncorrelated failures |
-| Wear-out | Final 30% of field life | 1.0× → 3.0× | Corrosion, fatigue, elastomer degradation, injectivity decline |
+| Wear-out | Final 30% of field life | 1.0× → 1.8× | Corrosion, fatigue, elastomer degradation, injectivity decline |
 
-The wear-out multiplier increases as `1 + ((year − wear_start) / (life − wear_start))² × 2`.
+The wear-out multiplier increases linearly as `1 + ((year − wear_start) / (life − wear_start)) × 0.8`. A linear ramp (max 1.8×) reflects gradual degradation; the previous quadratic ramp (max 3.0×) created an unrealistic cliff at end of life.
 
 ### Intervention probability threshold
 
@@ -207,16 +211,21 @@ The deferred injection penalty applies to rig workovers that sit in the deferred
 
 ### Barrier hierarchy
 
-The intervention engine applies priority rules based on `barrier_class`:
+The intervention engine applies priority rules based on `barrier_class` and `trigger_type`:
 
-- **Safety** (TRSV, Cement, Casing) — always immediate, never deferred.
-- **Production** (Tubing, Packer, Wellhead, Tree) — batched into campaigns unless escalated.
-- **Monitoring** (Gauge, Fiber Optics) — always deferrable.
+- **Safety reactive** (undetected TRSV, Cement, Casing failures) — always immediate emergency campaign.
+- **Safety preventive** (caught by inspection / monitoring) — deferrable; scheduled into a planned campaign.
+- **Production** (Tubing, Packer, Wellhead, Tree) — deferrable; batched into campaigns unless escalated.
+- **Monitoring** (Gauge, Fiber Optics) — always deferrable regardless of trigger type.
 - **Flow assurance** (Injectivity) — rigless intervention first; escalates to full workover on the second failure on the same well.
+
+### Detection and trigger types
+
+Each component has a `detection_prob` — the probability that a developing failure is identified through monitoring, inspection, or wireline surveys before it progresses to an unplanned event. Detected failures are reclassified as `preventive` (planned, deferred, 80% of reactive cost). Undetected failures remain `reactive`. The threshold mechanism also generates preventive events when cumulative failure probability exceeds the user-set threshold.
 
 ### Escalation rule
 
-If a well accumulates ≥ 2 medium-or-high severity failures within any 3-year window, all remaining deferred events on that well are promoted to immediate priority.
+If a well accumulates ≥ 2 medium-or-high severity **reactive** failures within any 3-year window, its remaining reactive deferred events are promoted to immediate priority. Preventive events are never escalated — they are already scheduled optimally.
 
 ### Campaign trigger logic
 
@@ -224,7 +233,9 @@ Deferred interventions accumulate in a per-simulation queue. A batch campaign fi
 - The queue reaches `campaign_threshold` wells (default 5), or
 - The oldest queued item has waited `max_deferral_years` years (default 3).
 
-Immediate interventions (safety-critical or escalated) are executed in the year they occur, each as a standalone mobilisation.
+Immediate interventions within the same year are grouped into campaigns rather than executed as individual mobilisations:
+- Emergency events (reactive safety failures in the same year): one shared emergency campaign.
+- Urgent events (escalated production failures in the same year): one shared urgent campaign.
 
 ### Randomness and reproducibility
 

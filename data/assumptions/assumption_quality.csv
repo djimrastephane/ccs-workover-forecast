@@ -1,10 +1,10 @@
 parameter,component,value,unit,source_type,confidence_level,sensitivity_level,reference,notes
-P10_MTTF,trsv,30,years,literature,medium,high impact,ISO 14310 / API 11D1 valve qualification,TRSV qualification testing; limited CCS-specific data
-P90_MTTF,trsv,65,years,expert_judgement,low,medium impact,Industry analogue from HP/HT wells,Extended life based on planned maintenance
+P10_MTTF,trsv,40,years,literature,medium,high impact,ISO 14310 / API 11D1 valve qualification,TRSV qualification testing; limited CCS-specific data
+P90_MTTF,trsv,90,years,expert_judgement,low,medium impact,Industry analogue from HP/HT wells,Extended life with planned maintenance program
 P10_MTTF,tubing,35,years,literature,medium,high impact,NORSOK D-010 / CO2 corrosion studies,Corrosion rate dependent on CO2 partial pressure
 P90_MTTF,tubing,55,years,literature,medium,high impact,NORSOK D-010 / CO2 corrosion studies,Optimistic assumes inhibited corrosion
-P10_MTTF,packer,22,years,literature,medium,high impact,SPE papers on packer reliability in CO2 service,Seal degradation; CCS-specific data limited
-P90_MTTF,packer,38,years,expert_judgement,low,high impact,Operator analogue from acid gas injection,Highly dependent on completion quality
+P10_MTTF,packer,25,years,literature,medium,high impact,SPE papers on packer reliability in CO2 service,Seal degradation; CCS-specific data limited
+P90_MTTF,packer,50,years,expert_judgement,low,high impact,Operator analogue from acid gas injection,Highly dependent on completion quality
 P10_MTTF,gauge,15,years,OREDA,high,low impact,OREDA Handbook Vol. 1 — Subsea equipment,Electronic component reliability well characterised
 P90_MTTF,gauge,26,years,OREDA,high,low impact,OREDA Handbook Vol. 1 — Subsea equipment,Includes planned replacement intervals
 P10_MTTF,fiber_optics,12,years,expert_judgement,low,low impact,Limited field data for CCS DTS/DAS applications,Connector degradation in CO2 poorly characterised
@@ -13,12 +13,12 @@ P10_MTTF,wellhead,45,years,literature,medium,low impact,API 6A / ISO 10423 wellh
 P90_MTTF,wellhead,75,years,literature,medium,low impact,API 6A / ISO 10423 design life data,Design life typically exceeds field life
 P10_MTTF,tree,40,years,literature,medium,low impact,API 6A christmas tree valve reliability data,Actuator reliability well characterised
 P90_MTTF,tree,70,years,literature,medium,low impact,API 6A design life data,Extended life with planned maintenance
-P10_MTTF,cement_barrier,30,years,literature,low,high impact,SPE 175539 / CO2 cement carbonation studies,CO2 carbonation rate highly uncertain; site-specific
-P90_MTTF,cement_barrier,70,years,synthetic_assumption,low,high impact,No direct CCS field calibration available,Upper bound based on legacy well integrity data
-P10_MTTF,casing,40,years,literature,medium,medium impact,NORSOK D-010 casing inspection data,CO2 corrosion below cement; limited monitoring access
-P90_MTTF,casing,80,years,expert_judgement,low,medium impact,Analogue from CO2 EOR fields (Weyburn),Cathodic protection assumed effective
+P10_MTTF,cement_barrier,50,years,literature,low,high impact,SPE 175539 / CO2 cement carbonation studies,CO2 carbonation rate highly uncertain; site-specific
+P90_MTTF,cement_barrier,120,years,synthetic_assumption,low,high impact,No direct CCS field calibration available,Upper bound; cement failures should be rare high-consequence events
+P10_MTTF,casing,60,years,literature,medium,medium impact,NORSOK D-010 casing inspection data,CO2 corrosion below cement; limited monitoring access
+P90_MTTF,casing,150,years,expert_judgement,low,medium impact,Analogue from CO2 EOR fields (Weyburn),Cathodic protection assumed effective; rare failure mode
 P10_MTTF,injectivity,8,years,literature,medium,high impact,SPE injectivity impairment papers (CCS pilots),Scale and particulate plugging; site-specific
-P90_MTTF,injectivity,20,years,expert_judgement,low,high impact,Operator experience from Sleipner / Snøhvit,Highly dependent on brine chemistry and rate
+P90_MTTF,injectivity,20,years,expert_judgement,low,high impact,Operator experience from Sleipner / Snohvit,Highly dependent on brine chemistry and rate
 rig_mobilisation_cost,all,2000000,USD,operator_analogue,medium,high impact,North Sea operator benchmarking data,Includes rig spread / logistics / permits
 full_workover_cost,all,2500000,USD,operator_analogue,medium,high impact,North Sea well cost benchmarks,Excludes tubing / packer material costs
 deferred_injection_cost,all,50000,USD/day/well,expert_judgement,low,medium impact,CO2 storage revenue proxy,Highly dependent on carbon credit pricing

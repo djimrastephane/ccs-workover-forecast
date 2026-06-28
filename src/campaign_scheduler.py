@@ -11,7 +11,12 @@ def schedule_campaigns(
     """
     Convert intervention decisions into campaign batches.
 
-    Immediate interventions trigger their own campaign (emergency mobilisation).
+    Immediate interventions are grouped by year rather than one-per-event:
+      - Emergency (reactive safety-barrier failures): one campaign per year
+        grouping all emergency events in that year together.
+      - Urgent (other immediate — escalated production failures): one campaign
+        per year grouping all urgent events together.
+
     Deferred interventions accumulate in a queue and trigger a batch campaign when:
       - Queue size reaches campaign_threshold, OR
       - Oldest queued item has waited max_deferral_years
@@ -42,32 +47,49 @@ def _process_simulation(
 
     campaigns = []
     campaign_counter = 0
-    # Each item: {'fail_year': int, 'intervention_type': str, 'cost': float, 'duration': float}
     deferred_queue: list[dict] = []
 
-    # Pre-group by year so the inner loop is O(1)
     by_year: dict = {yr: grp for yr, grp in sim_df.groupby('year')}
 
     for year in range(1, operating_years + 1):
         year_df = by_year.get(year)
 
         if year_df is not None:
-            immediate = year_df[year_df['immediate_or_deferred'] == 'immediate']
-            for _, event in immediate.iterrows():
-                campaign_counter += 1
-                is_rig = event['intervention_type'] == 'full_workover'
-                barrier_class = (
-                    event['barrier_class']
-                    if 'barrier_class' in event.index
-                    else 'production'
-                )
-                c_type_actual = 'emergency' if barrier_class == 'safety' else 'immediate'
-                campaigns.append(_single_campaign(
-                    sim_id, campaign_counter, year,
-                    c_type_actual, event, mob_cost, is_rig,
-                ))
+            immediate_df = year_df[year_df['immediate_or_deferred'] == 'immediate']
+            deferred_year = year_df[year_df['immediate_or_deferred'] == 'deferred']
 
-            for _, event in year_df[year_df['immediate_or_deferred'] == 'deferred'].iterrows():
+            if not immediate_df.empty:
+                # Emergency: reactive safety-barrier failures — highest urgency,
+                # but all in the same year can share one mobilisation.
+                emergency = immediate_df[
+                    (immediate_df['barrier_class'] == 'safety') &
+                    (immediate_df['trigger_type'] == 'reactive')
+                ]
+                # Urgent: all other immediate events (escalated production, etc.)
+                urgent = immediate_df[
+                    ~(
+                        (immediate_df['barrier_class'] == 'safety') &
+                        (immediate_df['trigger_type'] == 'reactive')
+                    )
+                ]
+
+                if not emergency.empty:
+                    campaign_counter += 1
+                    queue = _events_to_queue(year, emergency)
+                    campaigns.append(_batch_campaign(
+                        sim_id, campaign_counter, year, 'emergency',
+                        queue, mob_cost, defer_inj_cost,
+                    ))
+
+                if not urgent.empty:
+                    campaign_counter += 1
+                    queue = _events_to_queue(year, urgent)
+                    campaigns.append(_batch_campaign(
+                        sim_id, campaign_counter, year, 'immediate',
+                        queue, mob_cost, defer_inj_cost,
+                    ))
+
+            for _, event in deferred_year.iterrows():
                 deferred_queue.append({
                     'fail_year': year,
                     'intervention_type': event['intervention_type'],
@@ -91,7 +113,7 @@ def _process_simulation(
             campaigns.append(batch)
             deferred_queue = []
 
-    # Flush any remaining deferred events at end of lifecycle
+    # Flush remaining deferred events at end of lifecycle
     if deferred_queue:
         campaign_counter += 1
         batch = _batch_campaign(
@@ -104,22 +126,16 @@ def _process_simulation(
     return campaigns
 
 
-def _single_campaign(sim_id, counter, year, c_type, event, mob_cost, is_rig):
-    mob = mob_cost if is_rig else 0.0
-    return {
-        'simulation_id': sim_id,
-        'campaign_id': f'SIM{sim_id}_C{counter:04d}',
-        'campaign_year': year,
-        'campaign_type': c_type,
-        'n_wells': 1,
-        'n_rig_workovers': int(is_rig),
-        'n_rigless': int(not is_rig),
-        'total_duration_days': event['estimated_duration_days'],
-        'mobilisation_cost': mob,
-        'intervention_cost': event['estimated_cost'],
-        'total_campaign_cost': mob + event['estimated_cost'],
-        'deferred_injection_cost': 0.0,
-    }
+def _events_to_queue(year: int, events_df: pd.DataFrame) -> list[dict]:
+    return [
+        {
+            'fail_year': year,
+            'intervention_type': ev['intervention_type'],
+            'cost': ev['estimated_cost'],
+            'duration': ev['estimated_duration_days'],
+        }
+        for _, ev in events_df.iterrows()
+    ]
 
 
 def _batch_campaign(sim_id, counter, year, c_type, queue, mob_cost, defer_inj_cost):
@@ -130,7 +146,6 @@ def _batch_campaign(sim_id, counter, year, c_type, queue, mob_cost, defer_inj_co
     total_int_cost = sum(e['cost'] for e in queue)
 
     mob = mob_cost if rig_events else 0.0
-    # Deferred injection penalty: sum of each rig workover's wait (years→days) × daily cost
     defer_c = sum(
         (year - e['fail_year']) * 365.0 * defer_inj_cost
         for e in queue if e['intervention_type'] == 'full_workover'

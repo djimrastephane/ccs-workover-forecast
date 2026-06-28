@@ -38,8 +38,9 @@ def lifecycle_multiplier_vector(operating_years: int) -> np.ndarray:
       Installation damage, faulty gauges, poor packer setting.
     Phase 2 — Useful life (years 3 to 70% of life): 1.0×
       Random, uncorrelated failures.
-    Phase 3 — Wear-out (final 30% of life): increasing from 1.0× to 3.0×
+    Phase 3 — Wear-out (final 30% of life): increasing from 1.0× to 1.8×
       Corrosion, fatigue, elastomer degradation, injectivity decline.
+      Linear ramp avoids a cliff at end of life; models gradual degradation.
     """
     wear_start = max(3, int(operating_years * 0.70))
     mult = np.ones(operating_years)
@@ -51,7 +52,7 @@ def lifecycle_multiplier_vector(operating_years: int) -> np.ndarray:
             mult[yr] = 1.0
         else:
             frac = (year - wear_start) / max(operating_years - wear_start, 1)
-            mult[yr] = 1.0 + frac ** 2 * 2.0
+            mult[yr] = 1.0 + frac * 0.8   # linear ramp, max 1.8× at end of life
     return mult
 
 
