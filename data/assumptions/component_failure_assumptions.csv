@@ -1,0 +1,11 @@
+component,display_name,category,barrier_class,P10_MTTF,P90_MTTF,consequence_level,intervention_type,can_defer,safety_critical,default_cost,default_duration_days,injector_only,trsv_only
+trsv,TRSV / SCSSV,downhole_safety,safety,30,65,5,rigless_intervention,false,true,200000,2,false,true
+tubing,Tubing String,tubulars,production,35,55,4,full_workover,false,false,2500000,14,false,false
+packer,Injection Packer,tubulars,production,22,38,4,full_workover,false,false,2500000,10,false,false
+gauge,P/T Gauge,monitoring,monitoring,15,26,2,rigless_intervention,true,false,150000,1,false,false
+fiber_optics,Fiber Optics,monitoring,monitoring,12,26,2,rigless_intervention,true,false,100000,1,false,false
+wellhead,Wellhead,surface,production,45,75,4,light_intervention,true,false,500000,3,false,false
+tree,Tree,surface,production,40,70,4,light_intervention,true,false,500000,3,false,false
+cement_barrier,Cement Barrier,barriers,safety,30,70,5,full_workover,false,true,2500000,21,false,false
+casing,Casing,barriers,safety,40,80,5,full_workover,false,true,2500000,20,false,false
+injectivity,Injectivity / Flow Assurance,completion,flow_assurance,8,20,3,rigless_intervention,true,false,200000,5,true,false

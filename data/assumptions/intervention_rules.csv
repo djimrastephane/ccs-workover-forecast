@@ -1,0 +1,9 @@
+component,failure_mode,severity,intervention_type,priority,typical_duration_days,notes
+tubing,corrosion_leak,high,full_workover,immediate,14,Rig-based workover required — cannot inject safely with tubing leak
+packer,seal_failure,high,full_workover,immediate,10,Rig-based workover required — seal integrity critical
+casing,integrity_loss,high,full_workover,high_priority,20,May escalate to abandonment assessment
+cement_barrier,micro_annulus,high,full_workover,high_priority,21,Regulatory reporting likely — potential abandonment candidate
+wellhead_tree,valve_failure,medium,light_intervention,deferrable,3,Surface repair or valve replacement — rigless
+downhole_gauge,sensor_failure,low,rigless_intervention,deferrable,1,Wireline retrieval and replacement
+scssv,valve_malfunction,medium,rigless_intervention,immediate,2,Safety-critical — must be addressed promptly offshore
+injectivity_impairment,scale_plugging,medium,rigless_intervention,deferrable,5,Chemical squeeze treatment — escalate to workover if severe

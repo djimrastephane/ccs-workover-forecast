@@ -1,0 +1,17 @@
+cost_item,scenario,value_usd,unit,notes
+rig_mobilisation,base_case,2000000,per_campaign,Rig mob/demob — offshore semi-submersible
+rig_day_rate,base_case,150000,per_day,Offshore rig day rate (reference only in MVP)
+rigless_intervention_cost,base_case,200000,per_event,Wireline or coiled tubing operation
+light_intervention_cost,base_case,500000,per_event,Light well intervention vessel
+full_workover_cost,base_case,2500000,per_event,Full rig workover including all services
+deferred_injection_cost,base_case,50000,per_day,CO2 storage revenue or credit lost per day per well
+monitoring_cost,base_case,100000,per_well_per_year,Annual well monitoring and integrity surveillance
+abandonment_cost,base_case,5000000,per_well,Well P&A — cement squeeze and cap
+rig_mobilisation,offshore_high_cost,3500000,per_campaign,Deep water or harsh environment mob premium
+rig_day_rate,offshore_high_cost,250000,per_day,High-spec drillship or semi
+rigless_intervention_cost,offshore_high_cost,400000,per_event,Subsea or deepwater rigless premium
+light_intervention_cost,offshore_high_cost,800000,per_event,Intervention vessel with subsea capability
+full_workover_cost,offshore_high_cost,4000000,per_event,Deepwater or HPHT workover
+deferred_injection_cost,offshore_high_cost,80000,per_day,Higher CO2 credit value assumed
+monitoring_cost,offshore_high_cost,200000,per_well_per_year,ROV surveys and subsea monitoring
+abandonment_cost,offshore_high_cost,8000000,per_well,Subsea well P&A
