@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Smoke test — Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Import check
+        run: |
+          python -c "
+          from src.config_loader import load_component_assumptions, load_cost_assumptions, load_scenario_config
+          from src.reliability_model import sample_mttf, mttf_to_annual_prob, lifecycle_multiplier_vector
+          from src.failure_generator import generate_all_failures
+          from src.intervention_engine import apply_intervention_decisions
+          from src.campaign_scheduler import schedule_campaigns
+          from src.economics import compute_annual_economics, compute_lifecycle_summary
+          from src.simulation import run_simulation
+          from src.reporting import (
+              build_annual_forecast, compute_asset_health_scores,
+              compute_component_contributions, compute_heatmap_data,
+          )
+          print('All imports OK')
+          "
+
+      - name: Simulation smoke test
+        run: |
+          python -c "
+          from src.simulation import run_simulation
+          from src.reporting import (
+              build_annual_forecast, compute_asset_health_scores,
+              compute_component_contributions, compute_heatmap_data,
+          )
+          from src.config_loader import load_component_assumptions
+
+          failure_df, campaign_log, annual_costs, ls = run_simulation(
+              n_simulations=20,
+              n_injectors=8,
+              n_monitoring=2,
+              operating_years=30,
+              seed=42,
+              intervention_threshold=0.90,
+          )
+
+          assert not failure_df.empty, 'No failure events generated'
+          assert not campaign_log.empty, 'No campaigns generated'
+          assert not annual_costs.empty, 'No annual costs generated'
+          assert ls['p50_lifecycle_cost'] > 0, 'P50 lifecycle cost is zero'
+          assert ls['p50_workovers'] > 0, 'P50 workovers is zero'
+
+          required_cols = {
+              'simulation_id', 'year', 'well_id', 'component',
+              'trigger_type', 'sampled_mttf', 'lifecycle_multiplier',
+              'adjusted_probability', 'intervention_type', 'estimated_cost',
+          }
+          missing = required_cols - set(failure_df.columns)
+          assert not missing, f'Missing failure_df columns: {missing}'
+
+          comps = set(failure_df['component'].unique())
+          expected = {'tubing', 'packer', 'gauge', 'fiber_optics',
+                      'wellhead', 'tree', 'cement_barrier', 'casing', 'injectivity'}
+          assert expected.issubset(comps), f'Missing components: {expected - comps}'
+
+          assert 'reactive' in failure_df['trigger_type'].values, 'No reactive failures'
+
+          early = failure_df[failure_df['year'] <= 5]['lifecycle_multiplier'].mean()
+          late  = failure_df[failure_df['year'] >= 25]['lifecycle_multiplier'].mean()
+          assert late > early, 'Wear-out multiplier should exceed infant-mortality average'
+
+          comp_df = load_component_assumptions()
+          hm = compute_heatmap_data(comp_df, 30)
+          assert len(hm) == len(comp_df) * 30, 'Heatmap row count mismatch'
+          late_prob  = hm[hm['year'] == 30]['adjusted_prob'].mean()
+          early_prob = hm[hm['year'] == 3]['adjusted_prob'].mean()
+          assert late_prob > early_prob, 'Late-life probability should exceed useful-life probability'
+
+          hs = compute_asset_health_scores(failure_df, 20, 10, 30)
+          assert len(hs) > 0, 'No health scores computed'
+          for label, info in hs.items():
+              assert 0 <= info['score'] <= 100, f'Health score out of range for {label}'
+
+          print(f'P50 workovers:     {ls[\"p50_workovers\"]:.0f}')
+          print(f'P50 lifecycle cost: \${ls[\"p50_lifecycle_cost\"]/1e6:.1f}M')
+          print(f'Components seen:   {sorted(comps)}')
+          print(f'Smoke test PASSED')
+          "
+
+      - name: Validate scenario ordering
+        run: |
+          python -c "
+          from src.simulation import run_simulation
+
+          def p50_cost(scenario, multiplier=None):
+              _, _, _, ls = run_simulation(
+                  n_simulations=10, n_injectors=8, n_monitoring=2,
+                  operating_years=20, scenario_id=scenario, seed=42,
+              )
+              return ls['p50_lifecycle_cost']
+
+          conservative = p50_cost('conservative_design')
+          base         = p50_cost('base_case')
+          high_corr    = p50_cost('high_corrosion')
+
+          assert conservative < base, (
+              f'Conservative ({conservative:.0f}) should cost less than base ({base:.0f})'
+          )
+          assert base < high_corr, (
+              f'Base ({base:.0f}) should cost less than high corrosion ({high_corr:.0f})'
+          )
+          print(f'Conservative: \${conservative/1e6:.1f}M  Base: \${base/1e6:.1f}M  High corrosion: \${high_corr/1e6:.1f}M')
+          print('Scenario ordering PASSED')
+          "
