@@ -4,6 +4,8 @@
 
 A reliability-driven Monte Carlo simulator that estimates future workover and intervention demand for CCS wells over a 20–40 year lifecycle. Built in Python/Streamlit.
 
+> Developed after reading SPE-232388-MS, which raised the question of how to model CCS well integrity over a long operating life.
+
 ---
 
 ## What it does
