@@ -8,7 +8,7 @@ Inspired by the methodology in **SPE-232388-MS** — *"Methodology for Estimatin
 
 ## What it does
 
-Given a population of CCS wells and their component failure assumptions, the simulator answers:
+Given a population of CCS wells and their component reliability assumptions, the simulator answers:
 
 > *How many failures and workovers will emerge over time, and what resources will be needed?*
 
@@ -38,24 +38,23 @@ Then open http://localhost:8501 in your browser.
 
 ```
 ccs-workover-forecast/
-├── app.py                          # Streamlit dashboard (6 tabs)
+├── app.py                          # Streamlit dashboard (7 tabs)
 ├── requirements.txt
 ├── data/
 │   ├── assumptions/
-│   │   ├── component_failure_assumptions.csv
-│   │   ├── intervention_rules.csv
+│   │   ├── component_failure_assumptions.csv   # MTTF database
 │   │   ├── cost_assumptions.csv
 │   │   └── scenario_config.csv
 │   └── outputs/                    # Downloaded CSVs land here
 └── src/
     ├── config_loader.py            # Loads CSV assumptions
-    ├── reliability_model.py        # Annual failure probability functions
-    ├── failure_generator.py        # Vectorised failure event generation
-    ├── intervention_engine.py      # Escalation decision rules
+    ├── reliability_model.py        # MTTF sampling, bathtub curve, cumulative probability
+    ├── failure_generator.py        # Vectorised failure + preventive event generation
+    ├── intervention_engine.py      # Barrier hierarchy and escalation rules
     ├── campaign_scheduler.py       # Deferred queue batching
     ├── economics.py                # Cost aggregation and P10/P50/P90 summary
     ├── simulation.py               # Monte Carlo orchestration
-    ├── reporting.py                # Aggregation, tables, format helpers
+    ├── reporting.py                # Aggregation, health index, heatmap data, narratives
     └── plotting.py                 # Plotly chart functions
 ```
 
@@ -65,10 +64,12 @@ ccs-workover-forecast/
 
 ```
 Well population
-  → Failure generation        (vectorised: all sims × wells × components × years)
-  → Intervention decisions    (escalation: ≥2 failures within 3 yr → immediate)
-  → Campaign batching         (deferred queue + threshold/age triggers)
-  → Economics                 (per-event cost + mob overhead + deferred injection penalty)
+  → MTTF sampling          (triangular P10/P90 per simulation per component)
+  → Bathtub curve          (infant 1.5× · useful life 1.0× · wear-out up to 3.0×)
+  → Bernoulli failure trials + preventive threshold events
+  → Barrier hierarchy      (safety→immediate · monitoring→deferrable · flow assurance→rigless)
+  → Campaign batching      (deferred queue + size/age triggers)
+  → Economics              (per-event cost + mob overhead + deferred injection penalty)
   → P10/P50/P90 outputs
   → Dashboard + CSV exports
 ```
@@ -77,37 +78,67 @@ Well population
 
 ## Configuration
 
-All assumptions live in `data/assumptions/`. Edit the CSVs to change failure rates, costs, or scenarios — no code changes required.
+All assumptions live in `data/assumptions/`. Edit the CSVs to change reliability parameters, costs, or scenarios — no code changes required.
 
-### Component failure assumptions
+### Component reliability database
 
-`component_failure_assumptions.csv` — one row per component.
+`component_failure_assumptions.csv` — one row per component, MTTF-based.
 
 | Field | Description |
 |---|---|
-| `component` | Component name (tubing, packer, casing, etc.) |
-| `annual_prob_base` | Base annual failure probability |
-| `earliest_failure_year` | Earliest year in which this failure mode can occur |
-| `severity` | `low` / `medium` / `high` |
-| `immediate_action` | Whether the failure demands immediate intervention |
-| `rig_based` | Whether a rig workover is required |
+| `component` | Component identifier |
+| `display_name` | Human-readable label shown in the dashboard |
+| `category` | Functional grouping (tubulars, barriers, monitoring, etc.) |
+| `barrier_class` | `safety` / `production` / `monitoring` / `flow_assurance` |
+| `P10_MTTF` | Pessimistic mean time to failure (years) — short MTTF, high failure rate |
+| `P90_MTTF` | Optimistic mean time to failure (years) — long MTTF, low failure rate |
+| `consequence_level` | 1 (Negligible) to 5 (Catastrophic) — drives the risk matrix position |
+| `intervention_type` | `full_workover` / `light_intervention` / `rigless_intervention` |
+| `can_defer` | Whether the intervention can be queued for batching |
+| `safety_critical` | Forces immediate intervention regardless of batching rules |
+| `default_cost` | Per-event cost used when cost assumptions don't override |
+| `default_duration_days` | Typical intervention duration |
+| `injector_only` | Component only present on injection wells |
+| `trsv_only` | Component only enabled when TRSV/SCSSV is active (offshore config) |
 
-Components modelled:
+Ten components are modelled across four barrier classes:
 
-- Tubing (corrosion/leak)
-- Packer (seal failure)
-- Casing (integrity loss)
-- Cement barrier (micro-annulus)
-- Wellhead / tree (valve failure)
-- Downhole gauge (sensor failure)
-- SCSSV (valve malfunction — offshore only)
-- Injectivity impairment (scale/plugging — injectors only)
+| Component | Barrier class | P10 MTTF | P90 MTTF | Intervention type |
+|---|---|---|---|---|
+| TRSV / SCSSV | Safety | 30 yr | 65 yr | Rigless |
+| Cement Barrier | Safety | 30 yr | 70 yr | Full workover |
+| Casing | Safety | 40 yr | 80 yr | Full workover |
+| Tubing String | Production | 35 yr | 55 yr | Full workover |
+| Injection Packer | Production | 22 yr | 38 yr | Full workover |
+| Wellhead | Production | 45 yr | 75 yr | Light intervention |
+| Tree | Production | 40 yr | 70 yr | Light intervention |
+| Injectivity / Flow Assurance | Flow assurance | 8 yr | 20 yr | Rigless (escalates) |
+| P/T Gauge | Monitoring | 15 yr | 26 yr | Rigless |
+| Fiber Optics | Monitoring | 12 yr | 26 yr | Rigless |
 
-### Intervention rules
+### Reliability model
 
-`intervention_rules.csv` — maps each failure mode to an intervention type, priority, and typical duration.
+Each simulation draws an MTTF value per component from a triangular distribution between P10 and P90 (mode at midpoint). Annual failure probability is derived via the exponential reliability model:
 
-Intervention types: `full_workover`, `light_intervention`, `rigless_intervention`, `monitor_only`.
+```
+P(fail) = 1 − exp(−1 / sampled_MTTF)
+```
+
+A **bathtub curve lifecycle multiplier** is applied on top of the base probability each year:
+
+| Phase | Years | Multiplier | Failure modes |
+|---|---|---|---|
+| Infant mortality | 1–2 | 1.5× | Installation damage, commissioning defects, poor packer setting |
+| Useful life | 3–70% of field life | 1.0× | Random, uncorrelated failures |
+| Wear-out | Final 30% of field life | 1.0× → 3.0× | Corrosion, fatigue, elastomer degradation, injectivity decline |
+
+The wear-out multiplier increases as `1 + ((year − wear_start) / (life − wear_start))² × 2`.
+
+### Intervention probability threshold
+
+A user-controlled threshold (70–95%, default 90%) triggers **preventive interventions** when the cumulative failure probability of a component exceeds that level. Preventive events are planned, deferrable, and priced at 80% of the reactive cost to reflect the saving from scheduling in advance.
+
+Reducing the threshold increases planned interventions and total cost, but lowers unplanned failure risk.
 
 ### Cost assumptions
 
@@ -120,6 +151,8 @@ Intervention types: `full_workover`, `light_intervention`, `rigless_intervention
 | Light intervention | $500,000 / well |
 | Rigless intervention | $200,000 / event |
 | Deferred injection cost | $50,000 / day / well |
+
+The deferred injection penalty applies to rig workovers that sit in the deferred queue. Cost = (days waiting) × (daily rate) × (number of deferred rig jobs), summed per well.
 
 ### Scenario configuration
 
@@ -139,12 +172,13 @@ Intervention types: `full_workover`, `light_intervention`, `rigless_intervention
 
 | Tab | Contents |
 |---|---|
-| Executive Summary | Key metrics — P50/P90 workovers, lifecycle cost, peak annual demand, highest risk component |
-| Lifecycle Forecast | Annual P10/P50/P90 workover and intervention demand; cumulative workovers; cost distribution |
-| Failure Modes | Failures by component, intervention type split, severity distribution, cost by component |
-| Campaign Planning | Campaign timeline, size distribution, deferred queue, immediate vs deferred split |
-| Scenario Comparison | Add results from multiple runs to compare scenarios side by side |
-| Assumptions | Live view of all four CSV assumption tables |
+| Executive Summary | KPI cards (P50/P90 workovers, lifecycle cost, peak demand, threshold split), dynamic asset health index with per-component scores, executive narrative |
+| Lifecycle Forecast | Annual P10/P50/P90 workover fan chart, bathtub curve with phase annotations, cost fan chart |
+| Risk & Failure Modes | 5×5 risk matrix, component lifecycle failure probability heatmap, cost contribution breakdown |
+| Campaign Planning | Bubble Gantt across sample simulations, deferred queue evolution, immediate vs deferred split |
+| Economics | Waterfall cost breakdown (average per simulation), lifecycle cost distribution, cost by component |
+| Scenario Comparison | Add results from multiple scenario runs to compare side by side |
+| Assumptions | Live view of all CSV assumption tables |
 
 ---
 
@@ -152,7 +186,7 @@ Intervention types: `full_workover`, `light_intervention`, `rigless_intervention
 
 | File | Contents |
 |---|---|
-| `failure_event_log.csv` | Every simulated failure event with well, component, year, cost |
+| `failure_event_log.csv` | Every simulated failure event — includes `trigger_type`, `sampled_mttf`, `lifecycle_multiplier`, `adjusted_probability` |
 | `annual_forecast.csv` | Per-year P10/P50/P90 intervention and workover demand |
 | `campaign_log.csv` | Every simulated campaign with type, size, cost breakdown |
 | `simulation_summary.csv` | Lifecycle P10/P50/P90 statistics for the active run |
@@ -166,12 +200,21 @@ Intervention types: `full_workover`, `light_intervention`, `rigless_intervention
 
 - `estimated_cost` (per event) covers all per-intervention costs including materials and rig time.
 - `mobilisation_cost` (per campaign) is the rig mob/demob overhead added once per campaign.
-- `deferred_injection_cost` is the CO₂ storage revenue lost while a workover waits in the deferred queue.
+- `deferred_injection_cost` is the CO₂ storage revenue lost while a workover waits in the deferred queue, calculated as the sum of each deferred rig well's actual waiting time in days × daily rate.
 - Total lifecycle cost = sum of all three. No double-counting.
+
+### Barrier hierarchy
+
+The intervention engine applies priority rules based on `barrier_class`:
+
+- **Safety** (TRSV, Cement, Casing) — always immediate, never deferred.
+- **Production** (Tubing, Packer, Wellhead, Tree) — batched into campaigns unless escalated.
+- **Monitoring** (Gauge, Fiber Optics) — always deferrable.
+- **Flow assurance** (Injectivity) — rigless intervention first; escalates to full workover on the second failure on the same well.
 
 ### Escalation rule
 
-If a well accumulates ≥ 2 medium-or-high severity failures within any 3-year window, all remaining deferred events on that well are promoted to immediate priority. The threshold and window are hardcoded in `intervention_engine.py` and can be made configurable in a future iteration.
+If a well accumulates ≥ 2 medium-or-high severity failures within any 3-year window, all remaining deferred events on that well are promoted to immediate priority.
 
 ### Campaign trigger logic
 
@@ -179,11 +222,11 @@ Deferred interventions accumulate in a per-simulation queue. A batch campaign fi
 - The queue reaches `campaign_threshold` wells (default 5), or
 - The oldest queued item has waited `max_deferral_years` years (default 3).
 
-Immediate interventions (high-severity or safety-critical) are executed in the year they occur, each as a standalone mobilisation.
+Immediate interventions (safety-critical or escalated) are executed in the year they occur, each as a standalone mobilisation.
 
 ### Randomness and reproducibility
 
-The global random seed (default 42) is set once in `run_simulation()`. The same inputs will always produce the same results. Change the seed in `src/simulation.py` if you want a different draw.
+The global random seed (default 42) is set once in `run_simulation()`. The same inputs always produce the same results. Change the seed in `src/simulation.py` for a different draw.
 
 ---
 
@@ -191,26 +234,29 @@ The global random seed (default 42) is set once in `run_simulation()`. The same 
 
 | Paper element | Implementation |
 |---|---|
-| Component-level failure taxonomy | `component_failure_assumptions.csv` — tubing, packer, cement, wellhead, SCSSV, gauge |
+| Component-level failure taxonomy | 10-component MTTF database in `component_failure_assumptions.csv` |
+| MTTF uncertainty quantification | Triangular sampling between P10/P90 MTTF per simulation in `reliability_model.py` |
+| Bathtub curve lifecycle model | `lifecycle_multiplier_vector()` — infant / useful life / wear-out phases |
 | Injector vs monitoring well distinction | `failure_generator.py` — monitoring wells skip injector-only components |
-| Stochastic workover frequency estimation | Monte Carlo loop in `simulation.py` over N realisations |
+| Stochastic workover frequency estimation | Vectorised Monte Carlo in `simulation.py` over N realisations |
 | P10/P50/P90 workover demand output | `reporting.py` → `build_annual_forecast()` |
 | Campaign batching concept | `campaign_scheduler.py` — deferred queue with threshold and age triggers |
+| Barrier integrity hierarchy | `intervention_engine.py` — safety / production / monitoring / flow assurance classes |
 
 ---
 
-## Known limitations (MVP)
+## Known limitations
 
-1. **Constant failure rates** — annual probability is time-invariant. Weibull time-dependency (increasing hazard with age) is the natural next step; `reliability_model.py` has a stub for it.
-2. **No well state after repair** — a repaired component has the same failure rate as a new one. A repair-to-as-new vs repair-to-as-old distinction would improve accuracy.
-3. **No rig availability constraint** — the scheduler does not cap simultaneous campaigns by rig count. A capacity constraint module would be needed for resource planning.
-4. **Single deferred injection rate** — all deferred rig workovers are penalised at the same daily rate regardless of well productivity.
-5. **No spatial or cluster logic** — all wells are treated as independent. Grouping geographically clustered wells into campaigns is not yet modelled.
+1. **No well state after repair** — a repaired component has the same MTTF as a new one. A repair-to-as-new vs repair-to-as-old distinction would improve late-life accuracy.
+2. **No rig availability constraint** — the scheduler does not cap simultaneous campaigns by rig count.
+3. **Single deferred injection rate** — all deferred rig workovers are penalised at the same daily rate regardless of well productivity.
+4. **No spatial or cluster logic** — all wells are treated as independent.
+5. **Exponential (memoryless) failure model** — Weibull shape parameter is not yet implemented; the current model does not capture increasing hazard within a phase beyond the bathtub multiplier.
 
 ## Recommended next improvements
 
-1. Add Weibull hazard functions for age-dependent failure rates (plumbing already in `reliability_model.py`).
+1. Add Weibull shape parameter to capture intra-phase hazard growth (infrastructure already in `reliability_model.py`).
 2. Add a rig fleet capacity constraint to cap simultaneous campaigns.
-3. Add per-well repair history to track cumulative failure counts and adjust future rates.
-4. Enable CSV upload in the Assumptions tab so users can swap in project-specific failure data without editing files.
-5. Add a sensitivity tornado chart showing which failure assumption has the largest impact on P90 cost.
+3. Add per-well repair history to track cumulative failure counts and adjust future MTTF.
+4. Enable CSV upload in the Assumptions tab for project-specific calibration without file editing.
+5. Add a sensitivity tornado chart showing which MTTF assumption has the largest impact on P90 lifecycle cost.
