@@ -2,9 +2,7 @@
 
 [![CI](https://github.com/djimrastephane/ccs-workover-forecast/actions/workflows/ci.yml/badge.svg)](https://github.com/djimrastephane/ccs-workover-forecast/actions/workflows/ci.yml)
 
-A reliability-driven Monte Carlo simulator that estimates future workover and intervention demand for CCS wells over a 20–40 year lifecycle.
-
-Inspired by the methodology in **SPE-232388-MS** — *"Methodology for Estimating CCS Wells Workover Frequency"* — and built in Python/Streamlit.
+A reliability-driven Monte Carlo simulator that estimates future workover and intervention demand for CCS wells over a 20–40 year lifecycle. Built in Python/Streamlit.
 
 ---
 
@@ -229,21 +227,6 @@ Immediate interventions (safety-critical or escalated) are executed in the year 
 ### Randomness and reproducibility
 
 The global random seed (default 42) is set once in `run_simulation()`. The same inputs always produce the same results. Change the seed in `src/simulation.py` for a different draw.
-
----
-
-## Relationship to SPE-232388-MS
-
-| Paper element | Implementation |
-|---|---|
-| Component-level failure taxonomy | 10-component MTTF database in `component_failure_assumptions.csv` |
-| MTTF uncertainty quantification | Triangular sampling between P10/P90 MTTF per simulation in `reliability_model.py` |
-| Bathtub curve lifecycle model | `lifecycle_multiplier_vector()` — infant / useful life / wear-out phases |
-| Injector vs monitoring well distinction | `failure_generator.py` — monitoring wells skip injector-only components |
-| Stochastic workover frequency estimation | Vectorised Monte Carlo in `simulation.py` over N realisations |
-| P10/P50/P90 workover demand output | `reporting.py` → `build_annual_forecast()` |
-| Campaign batching concept | `campaign_scheduler.py` — deferred queue with threshold and age triggers |
-| Barrier integrity hierarchy | `intervention_engine.py` — safety / production / monitoring / flow assurance classes |
 
 ---
 
