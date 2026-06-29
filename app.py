@@ -27,7 +27,7 @@ from src.plotting import (
     plot_failure_by_component, plot_intervention_type_split,
     plot_severity_distribution, plot_cost_by_component,
     plot_component_treemap, plot_cost_waterfall,
-    plot_campaign_gantt, plot_campaign_timeline, plot_campaign_size_distribution,
+    plot_campaign_gantt, plot_campaign_cost_by_year, plot_campaign_timeline, plot_campaign_size_distribution,
     plot_deferred_queue_evolution, plot_deferred_queue, plot_immediate_vs_deferred,
     plot_scenario_comparison, plot_scenario_workovers,
     plot_tornado_chart,
@@ -685,8 +685,13 @@ with tabs[3]:
     else:
         # ── Campaign schedule (main view) ─────────────────────────────────────
         section('CAMPAIGN SCHEDULE')
-        st.plotly_chart(plot_campaign_gantt(campaign_log, n_sample=12),
-                        use_container_width=True, key='cp_gantt')
+        cp_col1, cp_col2 = st.columns(2)
+        with cp_col1:
+            st.plotly_chart(plot_campaign_gantt(campaign_log, n_sample=12),
+                            use_container_width=True, key='cp_gantt')
+        with cp_col2:
+            st.plotly_chart(plot_campaign_cost_by_year(campaign_log),
+                            use_container_width=True, key='cp_cost_by_year')
 
         # ── Queue evolution ───────────────────────────────────────────────────
         section('DEFERRED WORKOVER QUEUE')

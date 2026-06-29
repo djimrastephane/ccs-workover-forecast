@@ -637,6 +637,82 @@ def plot_campaign_gantt(campaign_log: pd.DataFrame, n_sample: int = 12) -> go.Fi
     return _dark(fig, 440)
 
 
+def plot_campaign_cost_by_year(campaign_log: pd.DataFrame) -> go.Figure:
+    """
+    Stacked bar: expected total campaign cost per year by type (mean across sims, USD millions).
+    Hover shows P10/P90 range. Complements the campaign count chart — makes scenario
+    cost differences visible even when campaign counts are similar.
+    """
+    fig = go.Figure()
+    if campaign_log.empty:
+        return _dark(fig)
+
+    n_sims = campaign_log['simulation_id'].nunique()
+    max_year = int(campaign_log['campaign_year'].max())
+    years = list(range(1, max_year + 1))
+
+    type_order  = ['emergency', 'immediate', 'deferred_batch', 'end_of_life']
+    type_labels = {
+        'emergency':      'Emergency',
+        'immediate':      'Urgent / Immediate',
+        'deferred_batch': 'Deferred Batch',
+        'end_of_life':    'End of Life',
+    }
+    type_colors = {
+        'emergency':      _RED,
+        'immediate':      _AMBER,
+        'deferred_batch': _BLUE,
+        'end_of_life':    _PURPLE,
+    }
+
+    costs = campaign_log.groupby(
+        ['simulation_id', 'campaign_year', 'campaign_type']
+    )['total_campaign_cost'].sum().reset_index()
+
+    for c_type in type_order:
+        sub = costs[costs['campaign_type'] == c_type]
+        if sub.empty:
+            continue
+
+        by_year = sub.groupby('campaign_year')['total_campaign_cost'].sum() / n_sims / 1e6
+        mean_y = [by_year.get(yr, 0.0) for yr in years]
+
+        pivot = (
+            sub.pivot_table(
+                index='simulation_id', columns='campaign_year',
+                values='total_campaign_cost', aggfunc='sum',
+            )
+            .reindex(columns=years)
+            .fillna(0)
+        ) / 1e6
+        p10_y = np.percentile(pivot.values, 10, axis=0).tolist()
+        p90_y = np.percentile(pivot.values, 90, axis=0).tolist()
+
+        fig.add_trace(go.Bar(
+            x=years,
+            y=mean_y,
+            name=type_labels[c_type],
+            marker_color=type_colors[c_type],
+            customdata=list(zip(p10_y, p90_y)),
+            hovertemplate=(
+                'Year %{x}<br>'
+                f'<b>{type_labels[c_type]}</b><br>'
+                'Expected cost: $%{y:.1f}M<br>'
+                'P10–P90 range: $%{customdata[0]:.1f}M – $%{customdata[1]:.1f}M'
+                '<extra></extra>'
+            ),
+        ))
+
+    fig.update_layout(
+        barmode='stack',
+        title='Campaign Cost per Year by Type (USD millions)',
+        xaxis_title='Year',
+        yaxis_title='Expected Cost per Year ($M, mean across simulations)',
+        legend=dict(orientation='h', x=0, y=1.12),
+    )
+    return _dark(fig, 440)
+
+
 def plot_campaign_timeline(campaign_log: pd.DataFrame) -> go.Figure:
     if campaign_log.empty:
         return _dark(go.Figure())
