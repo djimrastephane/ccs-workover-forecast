@@ -560,49 +560,81 @@ def plot_cost_waterfall(
 # ── Campaign Planning ─────────────────────────────────────────────────────────
 def plot_campaign_gantt(campaign_log: pd.DataFrame, n_sample: int = 12) -> go.Figure:
     """
-    Campaign schedule as a bubble chart: X=year, Y=simulation, size=wells in campaign.
-    Serves as the primary scheduling / Gantt-style view.
+    Stacked bar chart: expected campaigns per year by type (mean across all simulations).
+    Hover shows P10/P90 range so planners can see variability.
     """
     fig = go.Figure()
     if campaign_log.empty:
         return _dark(fig)
 
-    sample_sims = sorted(campaign_log['simulation_id'].unique())[:n_sample]
-    df = campaign_log[campaign_log['simulation_id'].isin(sample_sims)].copy()
-    df['sim_label'] = 'Simulation ' + df['simulation_id'].astype(str).str.zfill(3)
+    n_sims = campaign_log['simulation_id'].nunique()
+    max_year = int(campaign_log['campaign_year'].max())
+    years = list(range(1, max_year + 1))
 
-    for c_type, color in _CTYPE.items():
-        sub = df[df['campaign_type'] == c_type]
+    type_order  = ['emergency', 'immediate', 'deferred_batch', 'end_of_life']
+    type_labels = {
+        'emergency':      'Emergency',
+        'immediate':      'Urgent / Immediate',
+        'deferred_batch': 'Deferred Batch',
+        'end_of_life':    'End of Life',
+    }
+    type_colors = {
+        'emergency':      _RED,
+        'immediate':      _AMBER,
+        'deferred_batch': _BLUE,
+        'end_of_life':    _PURPLE,
+    }
+
+    counts = (
+        campaign_log
+        .groupby(['simulation_id', 'campaign_year', 'campaign_type'])
+        .size()
+        .reset_index(name='n')
+    )
+
+    for c_type in type_order:
+        sub = counts[counts['campaign_type'] == c_type]
         if sub.empty:
             continue
-        fig.add_trace(go.Scatter(
-            x=sub['campaign_year'],
-            y=sub['sim_label'],
-            mode='markers',
-            marker=dict(
-                size=(sub['n_wells'].clip(1, 30) + 4) * 1.8,
-                color=color,
-                symbol='square',
-                opacity=0.78,
-                line=dict(color='rgba(0,0,0,0.25)', width=1),
-            ),
-            name=c_type.replace('_', ' ').title(),
-            customdata=sub[['n_wells', 'total_campaign_cost', 'n_rig_workovers']].values,
+
+        # For each year: average across all sims (missing = 0 campaigns that year)
+        by_year = sub.groupby('campaign_year')['n'].sum() / n_sims
+        mean_y = [by_year.get(yr, 0.0) for yr in years]
+
+        # P10/P90: how many campaigns did each sim have in each year?
+        pivot = (
+            sub.pivot_table(
+                index='simulation_id', columns='campaign_year', values='n', aggfunc='sum'
+            )
+            .reindex(columns=years)
+            .fillna(0)
+        )
+        p10_y = np.percentile(pivot.values, 10, axis=0).tolist()
+        p90_y = np.percentile(pivot.values, 90, axis=0).tolist()
+
+        fig.add_trace(go.Bar(
+            x=years,
+            y=mean_y,
+            name=type_labels[c_type],
+            marker_color=type_colors[c_type],
+            customdata=list(zip(p10_y, p90_y)),
             hovertemplate=(
-                '<b>%{y}</b> — Year %{x}<br>'
-                'Wells: %{customdata[0]:.0f}<br>'
-                'Rig Workovers: %{customdata[2]:.0f}<br>'
-                'Cost: $%{customdata[1]:,.0f}<extra></extra>'
+                'Year %{x}<br>'
+                f'<b>{type_labels[c_type]}</b><br>'
+                'Expected campaigns: %{y:.2f}<br>'
+                'P10–P90 range: %{customdata[0]:.1f} – %{customdata[1]:.1f}'
+                '<extra></extra>'
             ),
         ))
 
     fig.update_layout(
-        title='Campaign Schedule — Sample Simulations  (bubble size ∝ campaign size)',
-        xaxis_title='Year', yaxis_title='',
-        xaxis=dict(range=[0, df['campaign_year'].max() + 1]),
-        legend=dict(orientation='h', x=0, y=1.1),
+        barmode='stack',
+        title='Campaign Schedule — Expected Campaigns per Year by Type',
+        xaxis_title='Year',
+        yaxis_title='Expected Campaigns (mean across simulations)',
+        legend=dict(orientation='h', x=0, y=1.12),
     )
-    return _dark(fig, max(380, n_sample * 34))
+    return _dark(fig, 440)
 
 
 def plot_campaign_timeline(campaign_log: pd.DataFrame) -> go.Figure:
