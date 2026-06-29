@@ -25,3 +25,11 @@ deferred_injection_cost,all,50000,USD/day/well,expert_judgement,low,medium impac
 campaign_threshold,model,5,wells,synthetic_assumption,low,medium impact,No literature reference,Operator scheduling preference
 max_deferral_years,model,3,years,synthetic_assumption,low,low impact,No literature reference,Conservative operational buffer
 intervention_threshold,model,90,percent,expert_judgement,low,high impact,Reliability engineering practice,No direct literature reference for CCS wells
+P10_MTTF,ssv,15,years,literature,medium,medium impact,API 14A / NORSOK D-010 surface safety valve data,Thermal cycling and hydrate risk reduce life in CO2 service
+P90_MTTF,ssv,40,years,literature,medium,medium impact,API 14A qualification data,Extended life with annual functional testing program
+P10_MTTF,casing_valve,20,years,expert_judgement,low,medium impact,Analogue from TRSV and downhole isolation valve data,CCS-specific CIV reliability data largely unavailable
+P90_MTTF,casing_valve,55,years,expert_judgement,low,medium impact,No direct CCS field calibration available,Emerging requirement; very limited operational history
+P10_MTTF,control_line,10,years,literature,medium,medium impact,OREDA / NORSOK D-010 hydraulic control line data,CO2 environment accelerates seal and fitting degradation
+P90_MTTF,control_line,25,years,literature,medium,medium impact,Offshore analogue from HP/HT completions,Inhibited hydraulic fluid and cathodic protection assumed
+P10_MTTF,tubing_hanger,30,years,expert_judgement,low,medium impact,Analogue from API 6A wellhead seal qualification,Seal material compatibility with CO2 poorly characterised
+P90_MTTF,tubing_hanger,70,years,expert_judgement,low,medium impact,Design life analogue from North Sea wellhead programmes,Low failure rate expected; long tail from robust qualification

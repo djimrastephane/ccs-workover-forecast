@@ -26,7 +26,7 @@ from .reliability_model import (
 )
 
 _INJECTOR_ONLY = {'injectivity'}
-_TRSV_ONLY = {'trsv'}
+_TRSV_ONLY = {'trsv', 'control_line'}
 
 _SEVERITY_MAP = {5: 'high', 4: 'high', 3: 'medium', 2: 'low', 1: 'low'}
 
@@ -41,6 +41,10 @@ _FAILURE_MODES = {
     'cement_barrier':  'micro_annulus',
     'casing':          'integrity_loss',
     'injectivity':     'scale_plugging',
+    'ssv':             'valve_failure',
+    'casing_valve':    'seal_failure',
+    'control_line':    'hydraulic_leak',
+    'tubing_hanger':   'seal_failure',
 }
 
 _BARRIER_PRIORITY = {
