@@ -2,7 +2,9 @@
 Failure generator — vectorised Monte Carlo failure event production.
 
 Model:
-  1. Sample MTTF per (simulation, component) from triangular(P10, mid, P90)
+  1. Sample MTTF per (simulation, well, component) from triangular(P10, mid, P90)
+     Each well draws its own MTTF, so failures scatter naturally across years
+     rather than all wells in a simulation failing in sync.
   2. Convert to base annual probability via exponential reliability model
   3. Apply scenario multiplier
   4. Apply lifecycle (bathtub-curve) multiplier per year
@@ -23,9 +25,7 @@ from .reliability_model import (
     threshold_year as compute_threshold_year,
 )
 
-# Components only applicable to injector wells
 _INJECTOR_ONLY = {'injectivity'}
-# Components only applicable when TRSV is enabled (offshore / safety config)
 _TRSV_ONLY = {'trsv'}
 
 _SEVERITY_MAP = {5: 'high', 4: 'high', 3: 'medium', 2: 'low', 1: 'low'}
@@ -43,7 +43,6 @@ _FAILURE_MODES = {
     'injectivity':     'scale_plugging',
 }
 
-# Barrier class -> immediate_or_deferred default
 _BARRIER_PRIORITY = {
     'safety':         'immediate',
     'production':     'deferred',
@@ -61,7 +60,6 @@ _OUTPUT_COLUMNS = [
 
 
 def _get_event_cost(intervention_type: str, comp_row, cost_assumptions: dict) -> float:
-    """Cost lookup: try cost_assumptions dict first, fall back to component default."""
     mapping = {
         'full_workover':        'full_workover_cost',
         'light_intervention':   'light_intervention_cost',
@@ -79,7 +77,7 @@ def generate_all_failures(
     n_monitoring: int,
     operating_years: int,
     component_assumptions: pd.DataFrame,
-    intervention_rules: pd.DataFrame,        # kept for API compat, not used
+    intervention_rules: pd.DataFrame,
     cost_assumptions: dict,
     failure_prob_multiplier: float,
     scssv_enabled: bool,
@@ -89,10 +87,10 @@ def generate_all_failures(
     """
     Generate all failure events across n_simulations, n_wells, n_years.
 
-    Returns DataFrame with one row per (simulation, well, component, year) event.
-    Events include reactive failures, detected-early conversions, and threshold-
-    based preventive interventions. When a preventive and reactive event coincide
-    for the same (sim, well, component, year), the preventive is preferred.
+    MTTF is sampled independently per (simulation, well) so that wells within
+    the same simulation have different failure rates. This prevents the
+    synchronised-failure artefact where all wells in a simulation reach their
+    preventive-intervention threshold in exactly the same year.
     """
     n_wells = n_injectors + n_monitoring
     well_ids = np.array(
@@ -103,14 +101,13 @@ def generate_all_failures(
     is_monitoring = well_types == 'monitoring'
     is_injector   = ~is_monitoring
 
-    lc_mult = lifecycle_multiplier_vector(operating_years)  # shape (n_years,)
+    lc_mult = lifecycle_multiplier_vector(operating_years)  # (n_years,)
 
     frames = []
 
     for _, comp in component_assumptions.iterrows():
         comp_name = comp['component']
 
-        # Applicability gates
         if comp_name in _TRSV_ONLY and not scssv_enabled:
             continue
 
@@ -132,20 +129,25 @@ def generate_all_failures(
         failure_mode = _FAILURE_MODES.get(comp_name, comp_name)
         injector_only = bool(comp.get('injector_only', False))
 
-        # -- Sample MTTF per simulation ----------------------------------------
-        mttf = sample_mttf(P10, P90, rng, n_simulations)          # (n_sims,)
-        base_prob = mttf_to_annual_prob(mttf)                      # (n_sims,)
+        # -- Sample MTTF per (simulation, well) --------------------------------
+        # Each well gets its own draw so failures scatter across years rather
+        # than all wells in a simulation ageing in lockstep.
+        mttf = sample_mttf(
+            P10, P90, rng, n_simulations * n_wells
+        ).reshape(n_simulations, n_wells)                       # (n_sims, n_wells)
+
+        base_prob = mttf_to_annual_prob(mttf)                   # (n_sims, n_wells)
         base_prob = np.minimum(base_prob * failure_prob_multiplier, 0.95)
 
-        # -- Adjusted probability matrix (n_sims, n_years) ---------------------
+        # -- Adjusted probability (n_sims, n_wells, n_years) ------------------
         adj_prob = np.minimum(
-            base_prob[:, np.newaxis] * lc_mult[np.newaxis, :],
+            base_prob[:, :, np.newaxis] * lc_mult[np.newaxis, np.newaxis, :],
             0.95,
         )
 
-        # -- Reactive failures -- Bernoulli trials -----------------------------
+        # -- Reactive failures -- Bernoulli trials ----------------------------
         draws = rng.random((n_simulations, n_wells, operating_years))
-        failures = draws < adj_prob[:, np.newaxis, :]  # (n_sims, n_wells, n_years)
+        failures = draws < adj_prob                             # (n_sims, n_wells, n_years)
 
         if injector_only:
             failures[:, is_monitoring, :] = False
@@ -159,8 +161,7 @@ def generate_all_failures(
             ev_imm = np.full(n_ev, imm_or_def, dtype=object)
 
             # Detection: some reactive failures are caught by monitoring /
-            # inspection before they escalate. Detected failures become planned
-            # (deferred) interventions at 80% of the reactive cost.
+            # inspection before escalating. Detected → planned, deferred, 80% cost.
             if detection_prob > 0:
                 detected = rng.random(n_ev) < detection_prob
                 ev_trigger[detected] = 'preventive'
@@ -178,10 +179,10 @@ def generate_all_failures(
                 'failure_mode':          failure_mode,
                 'severity':              severity,
                 'trigger_type':          ev_trigger,
-                'sampled_mttf':          mttf[sim_idx],
-                'base_probability':      base_prob[sim_idx],
+                'sampled_mttf':          mttf[sim_idx, well_idx],
+                'base_probability':      base_prob[sim_idx, well_idx],
                 'lifecycle_multiplier':  lc_mult[year_idx],
-                'adjusted_probability':  adj_prob[sim_idx, year_idx],
+                'adjusted_probability':  adj_prob[sim_idx, well_idx, year_idx],
                 'intervention_required': True,
                 'intervention_type':     intervention_type,
                 'immediate_or_deferred': ev_imm,
@@ -190,29 +191,26 @@ def generate_all_failures(
                 'injection_impact':      has_injection_impact,
             }))
 
-        # -- Preventive events -- threshold-based ------------------------------
-        # Uses cumulative failure probability (product of annual survivals),
-        # not annual probability directly. The threshold year is the first year
-        # where P(fail by year t) >= intervention_threshold.
-        cum_fp = cumulative_failure_probability(adj_prob)  # (n_sims, n_years)
-        prev_years = compute_threshold_year(cum_fp, intervention_threshold)
-        # shape (n_sims,); value = 1-based year, or n_years+1 if never reached
+        # -- Preventive events -- threshold-based (per well) ------------------
+        # Flatten to (n_sims*n_wells, n_years) for cumulative probability,
+        # then reshape back to (n_sims, n_wells).
+        cum_fp = cumulative_failure_probability(
+            adj_prob.reshape(n_simulations * n_wells, operating_years)
+        ).reshape(n_simulations, n_wells, operating_years)     # (n_sims, n_wells, n_years)
 
-        # Only generate events where threshold is reached within lifecycle
-        eligible_sims = np.where(prev_years <= operating_years)[0]
+        prev_years = compute_threshold_year(
+            cum_fp.reshape(n_simulations * n_wells, operating_years),
+            intervention_threshold,
+        ).reshape(n_simulations, n_wells)                      # (n_sims, n_wells)
 
-        if len(eligible_sims) > 0:
-            p_years = prev_years[eligible_sims]  # 1-based preventive year
+        # Injector-only: monitoring wells are ineligible for threshold events
+        if injector_only:
+            prev_years[:, is_monitoring] = operating_years + 1
 
-            if injector_only:
-                applicable_wells = np.where(is_injector)[0]
-            else:
-                applicable_wells = np.arange(n_wells)
-
-            n_ew = len(applicable_wells)
-            sim_rep  = np.repeat(eligible_sims, n_ew)
-            yr_rep   = np.repeat(p_years, n_ew)
-            well_rep = np.tile(applicable_wells, len(eligible_sims))
+        eligible_mask = prev_years <= operating_years          # (n_sims, n_wells)
+        sim_rep, well_rep = np.where(eligible_mask)
+        if len(sim_rep) > 0:
+            yr_rep = prev_years[sim_rep, well_rep]             # 1-based threshold year
 
             frames.append(pd.DataFrame({
                 'simulation_id':         sim_rep + 1,
@@ -225,15 +223,15 @@ def generate_all_failures(
                 'failure_mode':          failure_mode,
                 'severity':              severity,
                 'trigger_type':          'preventive',
-                'sampled_mttf':          mttf[sim_rep],
-                'base_probability':      base_prob[sim_rep],
+                'sampled_mttf':          mttf[sim_rep, well_rep],
+                'base_probability':      base_prob[sim_rep, well_rep],
                 'lifecycle_multiplier':  lc_mult[yr_rep - 1],
-                'adjusted_probability':  adj_prob[sim_rep, yr_rep - 1],
+                'adjusted_probability':  adj_prob[sim_rep, well_rep, yr_rep - 1],
                 'intervention_required': True,
                 'intervention_type':     intervention_type,
-                'immediate_or_deferred': 'deferred',   # threshold-preventive = always planned
+                'immediate_or_deferred': 'deferred',
                 'estimated_duration_days': duration,
-                'estimated_cost':        cost * 0.80,  # 20% saving for planned work
+                'estimated_cost':        cost * 0.80,
                 'injection_impact':      has_injection_impact,
             }))
 
@@ -242,10 +240,9 @@ def generate_all_failures(
 
     df = pd.concat(frames, ignore_index=True)
 
-    # Deduplicate: when a preventive event and a reactive failure coincide in
-    # the same year for the same (sim, well, component), keep the PREVENTIVE
-    # one. The inspection / monitoring would have caught the defect and
-    # converted the response from emergency to planned.
+    # When a preventive event and a reactive failure coincide for the same
+    # (sim, well, component, year), keep the preventive one — the inspection
+    # would have caught the defect before it became an emergency.
     has_both = df.duplicated(
         subset=['simulation_id', 'well_id', 'component', 'year'], keep=False
     )

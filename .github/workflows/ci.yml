@@ -110,9 +110,9 @@ jobs:
           python -c "
           from src.simulation import run_simulation
 
-          def p50_cost(scenario, multiplier=None):
+          def p50_cost(scenario):
               _, _, _, ls = run_simulation(
-                  n_simulations=10, n_injectors=8, n_monitoring=2,
+                  n_simulations=50, n_injectors=8, n_monitoring=2,
                   operating_years=20, scenario_id=scenario, seed=42,
               )
               return ls['p50_lifecycle_cost']
