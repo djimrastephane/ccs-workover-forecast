@@ -345,7 +345,7 @@ if run_btn:
                  'max_deferral_years': max_deferral_years}
     qa_metrics  = compute_qa_metrics(failure_df, campaign_log, lifecycle_summary, qa_params)
     qa_warnings = generate_qa_warnings(qa_metrics, qa_params)
-    tornado_df  = compute_uncertainty_decomposition(contributions, component_assumptions_for_heatmap)
+    tornado_df  = compute_uncertainty_decomposition(contributions, component_assumptions_for_heatmap, n_simulations)
 
     st.session_state.results = dict(
         failure_df=failure_df, campaign_log=campaign_log, annual_costs=annual_costs,
@@ -911,17 +911,19 @@ with tabs[6]:
             return ['background-color:#1f0000;color:#fca5a5' if row['confidence'] == 'low' else ''] * len(row)
         st.dataframe(gaps_df.style.apply(_highlight_gaps, axis=1), use_container_width=True)
 
-    # ── Uncertainty tornado ───────────────────────────────────────────────────
-    section('UNCERTAINTY DECOMPOSITION — MTTF SPREAD CONTRIBUTION TO COST VARIANCE')
+    # ── Sensitivity tornado ───────────────────────────────────────────────────
+    section('SENSITIVITY TORNADO — MTTF ASSUMPTION IMPACT ON LIFECYCLE COST')
     if not tornado_df.empty:
         st.plotly_chart(plot_tornado_chart(tornado_df), use_container_width=True, key='qa_tornado')
         st.caption(
-            'Proxy method: uncertainty contribution = cost share × normalised MTTF spread (P90−P10)/P10. '
-            'This is an approximation — full variance decomposition would require re-running the simulation '
-            'with clamped MTTF distributions. Use for ranking purposes only.'
+            'Analytical OAT (one-at-a-time) sensitivity. For each component, MTTF is varied from its '
+            'P10 (pessimistic) to P90 (optimistic) value while all others stay at mode = (P10+P90)/2. '
+            'ΔCost is estimated analytically via the ratio of annual failure probabilities — '
+            'no re-simulation required. Components with the widest swing are the top priorities '
+            'for field calibration.'
         )
     else:
-        st.info('No uncertainty decomposition data — run simulation first.')
+        st.info('No sensitivity data — run simulation first.')
 
     # ── Validation Metrics grid ───────────────────────────────────────────────
     section('VALIDATION METRICS — MODEL SANITY CHECKS')

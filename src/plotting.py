@@ -862,55 +862,79 @@ def plot_scenario_workovers(comparison_df: pd.DataFrame) -> go.Figure:
 
 
 def plot_tornado_chart(tornado_df: 'pd.DataFrame') -> go.Figure:
-    """MTTF uncertainty contribution tornado chart."""
-    import pandas as pd
+    """
+    Analytical OAT sensitivity tornado.
+    Left bars (blue) = optimistic: MTTF at P90 → cost decreases.
+    Right bars (red)  = pessimistic: MTTF at P10 → cost increases.
+    Sorted widest swing at top. X-axis = ΔCost per simulation ($M).
+    """
     if tornado_df.empty:
-        return go.Figure()
+        return _dark(go.Figure())
 
-    df = tornado_df.head(8).sort_values('uncertainty_pct')
-    bar_colors = [
-        '#ef4444' if b == 'safety'
-        else '#f59e0b' if b == 'production'
-        else '#10b981' if b == 'monitoring'
-        else '#3b82f6'
-        for b in df['barrier_class']
-    ]
+    # Show top 8 by swing, plotted bottom-to-top (ascending for horizontal bar)
+    df = tornado_df.head(8).sort_values('swing')
 
     fig = go.Figure()
+
+    # Optimistic bars (P90 MTTF, lower cost) — extend left
     fig.add_trace(go.Bar(
         y=df['display_name'],
-        x=df['uncertainty_pct'],
+        x=df['delta_high'],
         orientation='h',
-        marker_color=bar_colors,
-        text=[f"{v:.0f}%" for v in df['uncertainty_pct']],
-        textposition='outside',
-        textfont=dict(color='#94a3b8', size=11),
+        name='Optimistic (P90 MTTF)',
+        marker_color=_BLUE,
+        opacity=0.85,
+        customdata=df[['mttf_p90', 'cost_pct', 'mttf_mode']].values,
         hovertemplate=(
             '<b>%{y}</b><br>'
-            'Uncertainty contribution: %{x:.1f}%<br>'
-            'MTTF range: P10=%{customdata[0]:.0f}yr / P90=%{customdata[1]:.0f}yr<br>'
-            'Cost contribution: %{customdata[2]:.0f}% of lifecycle cost'
+            'MTTF at P90: %{customdata[0]:.0f} yr  (base: %{customdata[2]:.0f} yr)<br>'
+            'Cost impact: $%{x:.2f}M per simulation<br>'
+            'Component cost share: %{customdata[1]:.1f}%'
             '<extra></extra>'
         ),
-        customdata=df[['mttf_p10', 'mttf_p90', 'cost_pct']].values,
     ))
 
+    # Pessimistic bars (P10 MTTF, higher cost) — extend right
+    fig.add_trace(go.Bar(
+        y=df['display_name'],
+        x=df['delta_low'],
+        orientation='h',
+        name='Pessimistic (P10 MTTF)',
+        marker_color=_RED,
+        opacity=0.85,
+        customdata=df[['mttf_p10', 'cost_pct', 'mttf_mode']].values,
+        hovertemplate=(
+            '<b>%{y}</b><br>'
+            'MTTF at P10: %{customdata[0]:.0f} yr  (base: %{customdata[2]:.0f} yr)<br>'
+            'Cost impact: +$%{x:.2f}M per simulation<br>'
+            'Component cost share: %{customdata[1]:.1f}%'
+            '<extra></extra>'
+        ),
+    ))
+
+    x_max = df['delta_low'].max()
+    x_min = df['delta_high'].min()
+    pad   = max(abs(x_max), abs(x_min)) * 0.18
+
     fig.update_layout(
-        title=dict(
-            text='MTTF Uncertainty Contribution to Lifecycle Cost Variance',
-            font=dict(size=13, color='#e2e8f0'),
-        ),
+        barmode='overlay',
+        title='Sensitivity Tornado — Cost Impact of MTTF Assumption Range (per simulation)',
         xaxis=dict(
-            title='% contribution to output uncertainty (proxy)',
-            color='#94a3b8',
-            gridcolor='#1e293b',
-            range=[0, df['uncertainty_pct'].max() * 1.25],
+            title='ΔLifecycle Cost per simulation ($M)',
+            zeroline=True,
+            zerolinecolor='#475569',
+            zerolinewidth=2,
+            range=[x_min - pad, x_max + pad],
         ),
-        yaxis=dict(color='#e2e8f0', tickfont=dict(size=11)),
-        paper_bgcolor='#0f172a',
-        plot_bgcolor='#0f172a',
-        font=dict(color='#94a3b8'),
-        margin=dict(l=160, r=80, t=50, b=40),
-        height=380,
+        yaxis=dict(tickfont=dict(size=11)),
+        legend=dict(orientation='h', x=0, y=1.12),
+        annotations=[dict(
+            x=0, y=-0.12, xref='paper', yref='paper',
+            text='← Cheaper if MTTF is optimistic (long-lived)   '
+                 'More expensive if MTTF is pessimistic (short-lived) →',
+            showarrow=False, font=dict(size=10, color='#64748b'),
+            xanchor='center',
+        )],
+        margin=dict(l=160, r=60, t=60, b=60),
     )
-    return fig
+    return _dark(fig, 440)
