@@ -219,11 +219,12 @@ def scenario_card(name: str, summary: dict, highlight: str = '') -> str:
 
 # ── Scenario labels ───────────────────────────────────────────────────────────
 _SCENARIO_LABELS = {
-    'base_case':          'Base Case',
+    'base_case':           'Base Case',
     'conservative_design': 'Conservative Design',
-    'low_cost_design':    'Low-Cost Design',
-    'high_corrosion':     'High Corrosion',
-    'offshore_high_cost': 'Offshore High-Cost',
+    'low_cost_design':     'Low-Cost Design',
+    'high_corrosion':      'High Corrosion',
+    'offshore_high_cost':  'Offshore High-Cost',
+    'legacy_conversion':   'Legacy Well Conversion',
 }
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────

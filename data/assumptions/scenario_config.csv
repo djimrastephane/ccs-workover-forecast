@@ -4,3 +4,4 @@ conservative_design,Conservative Design,High-specification wells with enhanced c
 low_cost_design,Low-Cost Design,Cost-optimised well design with higher baseline failure probability,1.5,0.9,true,true,5,3
 high_corrosion,High Corrosion Case,Elevated CO2 corrosion and well integrity risk — aggressive reservoir fluid,1.8,1.3,true,true,4,2
 offshore_high_cost,Offshore High-Cost,Deepwater or harsh environment offshore CCS with premium rig and intervention costs,1.2,1.6,true,true,5,3
+legacy_conversion,Legacy Well Conversion,Converted abandoned O&G wellbore with material incompatibility and unknown construction history — per PMC10407664 JPN-1 case study,2.5,1.4,false,false,4,2

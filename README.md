@@ -169,6 +169,8 @@ The **monitoring program** selector (Minimal / Standard / Comprehensive) overrid
 
 Full-scale simulations (100 wells) show ~$87M P50 lifecycle cost difference between minimal and comprehensive monitoring, confirming early-detection investment is economic.
 
+> **Monitoring tool sensitivity floor**: the PMC10407664 JPN-1 case study found that commercial acoustic/CBL tools failed to detect a micro-annulus entirely — leakage was only identified via temperature anomalies. This is reflected in the comprehensive-tier cement_barrier and casing detection_prob being capped at 0.45 rather than the 0.50 initially assumed. Even the best available tooling cannot guarantee detection of sub-threshold leakage rates.
+
 A second preventive mechanism fires when **cumulative failure probability** (the product of all annual survivals to date) exceeds the user-set threshold (default 90%). This is the probability of surviving to year *t*, not the single-year probability. A threshold-preventive event is always deferrable and costs 80% of the reactive equivalent.
 
 ### Intervention probability threshold
@@ -206,6 +208,7 @@ The deferred injection penalty applies to rig workovers sitting in the deferred 
 | Low-Cost Design | 1.5× | 0.9× | Cost-optimised, higher failure risk |
 | High Corrosion | 1.8× | 1.3× | Aggressive CO₂ corrosion; higher intervention complexity |
 | Offshore High-Cost | 1.2× | 1.6× | Deepwater or harsh environment |
+| Legacy Well Conversion | 2.5× | 1.4× | Converted abandoned O&G wellbore — material incompatibility, unknown construction history; SCSSV disabled; per PMC10407664 |
 
 ---
 
@@ -286,7 +289,7 @@ The global random seed (default 42) is set once in `run_simulation()`. The same 
 6. **Low calibration score (41/100)** — several high-sensitivity parameters (cement P90 MTTF, packer P90 MTTF, injectivity P90 MTTF, intervention threshold) rely on expert judgement or synthetic assumptions with no direct CCS field data. Outputs should be treated as order-of-magnitude planning estimates, not engineering commitments. The Model QA tab shows the full breakdown.
 7. **Joule-Thomson cooling not explicitly modelled** — CO₂ depressurisation during well control events can cool valves to −78 °C (confirmed by the NZTC SSSV JIP tests down to −78.5 °C). This extreme thermal shock is a CCS-specific failure driver for TRSV, SSV, and packers; it is currently absorbed into the conservative MTTF assumptions rather than modelled as a distinct mechanism.
 8. **Thermal/pressure cycling degradation not captured** — cyclical CO₂ injection causes progressive cement debonding, casing fatigue, and elastomer creep beyond what the bathtub wear-out ramp captures. A future cyclic-fatigue degradation model would improve late-life cement and packer accuracy.
-9. **Legacy wells not in scope** — existing oil and gas wellbores within a CO₂ storage complex are a documented major containment risk (NZTC/DNV §4.4). The model covers new-build CCS wells only; legacy well re-entry and remediation costs are not included.
+9. **Legacy well conversion risk not fully captured** — the PMC10407664 JPN-1 case study (Indonesia) found that a 10-year-idle well required mandatory re-completion even after a full workover: corrosion rate exceeded 2 mm/yr, existing casing was incompatible with CO₂, and acoustic CBL tools failed to detect the micro-annulus (temperature logging found 2 leaks at 440 m and 881 m that CBL missed). The **Legacy Well Conversion** scenario (2.5× failure multiplier, 1.4× cost multiplier, SCSSV disabled) approximates this risk profile; however, idle-period degradation and material incompatibility are absorbed into the MTTF distribution rather than modelled mechanistically.
 
 ## Recommended next improvements
 
@@ -306,7 +309,12 @@ The global random seed (default 42) is set once in `run_simulation()`. The same 
 |---|---|
 | SPE-232388-MS | Original inspiration for modelling CCS well integrity over a long operating life |
 | [NZTC / DNV — CCS Wells Technology Roadmap (2025)](https://www.netzerotc.com/wp-content/uploads/2025/10/CCS_Wells_Technology_Roadmap_report.pdf) | Component taxonomy, CCS-specific failure mechanisms (Joule-Thomson, carbonation, thermal cycling), intervention and monitoring technology landscape |
+| [PMC10407664 — JPN-1 CCS Pilot Well Integrity Assessment (2023)](https://pmc.ncbi.nlm.nih.gov/articles/PMC10407664/) | Real-world case study of abandoned well conversion to CO₂ injection; calibrates cement_barrier detection_prob (CBL tool failure); supports Legacy Well Conversion scenario (2.5× multiplier) and monitoring tool sensitivity floor |
+| ISO 16530-1:2017 | Well integrity — lifecycle governance; defines barrier element hierarchy and well status classification used throughout this model |
+| ISO 16530-2:2013 | Well integrity — operational phase; inspection intervals and acceptance criteria that inform detection_prob and MTTF assumptions |
 | ISO 27914:2017 | CO₂ geological storage — well infrastructure, integrity, and monitoring requirements |
+| API RP 90 | Annular casing pressure management in offshore wells — directly relevant to casing_valve and sustained casing pressure failure modes |
+| API Spec 5CRA | Corrosion-resistant alloy seamless tubes — material qualification standard for CO₂ service; used to validate tubing P10_MTTF assumptions |
 | IOGP Report 676 | Well abandonment and integrity evaluation for CO₂ storage |
 | NORSOK D-010 | Well integrity in drilling and well operations; used to guide CCS well construction and MTTF analogues |
 | DNV-RP-J203 | Geological storage of CO₂ — recommended practices for MMV and well assessment |
