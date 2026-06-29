@@ -6,6 +6,7 @@ from .config_loader import (
     load_intervention_rules,
     load_cost_assumptions,
     load_scenario_config,
+    load_monitoring_config,
 )
 from .failure_generator import generate_all_failures
 from .intervention_engine import apply_intervention_decisions
@@ -22,6 +23,7 @@ def run_simulation(
     campaign_threshold: int = 5,
     max_deferral_years: int = 3,
     intervention_threshold: float = 0.90,
+    monitoring_program: str = 'standard',
     seed: int = 42,
     on_progress=None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
@@ -63,9 +65,35 @@ def run_simulation(
         cost_multiplier = 1.0
         scssv_enabled = True
 
+    # ── Apply monitoring program → override detection_prob per component ──────
+    monitoring_cfg = load_monitoring_config()
+    if not monitoring_cfg.empty and monitoring_program in monitoring_cfg.columns:
+        mon_map = dict(zip(monitoring_cfg['component'], monitoring_cfg[monitoring_program]))
+        component_assumptions = component_assumptions.copy()
+        component_assumptions['detection_prob'] = (
+            component_assumptions['component'].map(mon_map)
+            .fillna(component_assumptions['detection_prob'])
+        )
+
+    # ── Build cost assumptions with CO₂ uplift and post-workover verification ─
     cost_scenario = 'offshore_high_cost' if scenario_id == 'offshore_high_cost' else 'base_case'
     raw_costs = load_cost_assumptions(cost_scenario)
-    cost_assumptions = {k: v * cost_multiplier for k, v in raw_costs.items()}
+
+    # Extract scalars before applying cost_multiplier
+    co2_uplift   = float(raw_costs.get('co2_handling_uplift_factor', 1.0))
+    post_verify  = float(raw_costs.get('post_workover_verification_cost', 0.0))
+    _scalar_keys = {'co2_handling_uplift_factor', 'post_workover_verification_cost'}
+
+    cost_assumptions = {k: v * cost_multiplier for k, v in raw_costs.items()
+                        if k not in _scalar_keys}
+
+    # Apply CO₂ handling uplift to all per-event intervention costs
+    for _key in ('rigless_intervention_cost', 'light_intervention_cost', 'full_workover_cost'):
+        if _key in cost_assumptions:
+            cost_assumptions[_key] *= co2_uplift
+
+    # Post-workover verification: scale by both multipliers then pass to failure generator
+    cost_assumptions['post_workover_verification_cost'] = post_verify * co2_uplift * cost_multiplier
 
     # ── Generate failures (vectorised across all simulations) ─────────────────
     _progress(f'Generating failure events across {n_simulations:,} simulations…', 0.10)

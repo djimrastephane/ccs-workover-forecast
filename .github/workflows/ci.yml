@@ -85,6 +85,27 @@ jobs:
 
           assert 'reactive' in failure_df['trigger_type'].values, 'No reactive failures'
 
+          # Verify monitoring_program parameter works for all three tiers
+          for tier in ('minimal', 'standard', 'comprehensive'):
+              fdf, _, _, ls_tier = run_simulation(
+                  n_simulations=10, n_injectors=8, n_monitoring=2,
+                  operating_years=30, seed=42, monitoring_program=tier,
+              )
+              assert not fdf.empty, f'No failures for monitoring_program={tier}'
+          # Comprehensive should detect more failures as preventive than minimal
+          # (test the mechanism, not the aggregate economics — too few wells for stable P50)
+          fdf_min,  _, _, _ = run_simulation(n_simulations=50, n_injectors=8, n_monitoring=2,
+                                              operating_years=30, seed=42, monitoring_program='minimal')
+          fdf_comp, _, _, _ = run_simulation(n_simulations=50, n_injectors=8, n_monitoring=2,
+                                              operating_years=30, seed=42, monitoring_program='comprehensive')
+          prev_min  = (fdf_min['trigger_type']  == 'preventive').mean()
+          prev_comp = (fdf_comp['trigger_type'] == 'preventive').mean()
+          assert prev_comp > prev_min, (
+              f'Comprehensive monitoring should yield more preventive events than minimal '
+              f'({prev_comp:.3f} vs {prev_min:.3f})'
+          )
+          print(f'Preventive fraction: minimal={prev_min:.2%}  comprehensive={prev_comp:.2%}')
+
           early = failure_df[failure_df['year'] <= 5]['lifecycle_multiplier'].mean()
           late  = failure_df[failure_df['year'] >= 25]['lifecycle_multiplier'].mean()
           assert late > early, 'Wear-out multiplier should exceed infant-mortality average'

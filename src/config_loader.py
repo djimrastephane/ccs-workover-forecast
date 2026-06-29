@@ -50,3 +50,11 @@ def load_assumption_quality() -> pd.DataFrame:
         return pd.read_csv(_path('assumption_quality.csv'))
     except FileNotFoundError:
         return pd.DataFrame()
+
+
+def load_monitoring_config() -> pd.DataFrame:
+    """Load per-tier detection probability overrides (minimal / standard / comprehensive)."""
+    try:
+        return pd.read_csv(_path('monitoring_config.csv'))
+    except FileNotFoundError:
+        return pd.DataFrame()

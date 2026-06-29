@@ -129,6 +129,9 @@ def generate_all_failures(
         imm_or_def = 'immediate' if safety_critical or not can_defer else default_imm
         duration = float(comp['default_duration_days'])
         cost = _get_event_cost(intervention_type, comp, cost_assumptions)
+        # Post-workover integrity verification is mandatory before CO₂ re-injection
+        if intervention_type == 'full_workover':
+            cost += float(cost_assumptions.get('post_workover_verification_cost', 0.0))
         has_injection_impact = severity in ('high', 'medium')
         display_name = str(comp['display_name'])
         failure_mode = _FAILURE_MODES.get(comp_name, comp_name)

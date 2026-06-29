@@ -271,6 +271,32 @@ with st.sidebar:
         ),
     )
 
+    st.markdown('<div class="sb-section">📡 Monitoring Program</div>', unsafe_allow_html=True)
+    _MON_LABELS = {
+        'minimal':       'Minimal',
+        'standard':      'Standard',
+        'comprehensive': 'Comprehensive',
+    }
+    monitoring_program = st.radio(
+        'Monitoring Configuration',
+        options=list(_MON_LABELS.keys()),
+        format_func=_MON_LABELS.__getitem__,
+        index=1,
+        label_visibility='collapsed',
+        help=(
+            'Controls detection probability for each component.\n\n'
+            'Minimal — downhole P/T gauges + occasional wireline surveys only.\n'
+            'Standard — gauges + annulus pressure monitoring + periodic CBL/caliper.\n'
+            'Comprehensive — full DTS/DAS fibre + wireless B-annulus + corrosion monitoring.'
+        ),
+    )
+    _MON_DESC = {
+        'minimal':       'P/T gauges + periodic wireline — lower detection, fewer planned interventions',
+        'standard':      'Gauges + annulus pressure + CBL surveys — baseline program',
+        'comprehensive': 'DTS/DAS + wireless B-annulus + corrosion monitoring — maximum early detection',
+    }
+    st.caption(_MON_DESC[monitoring_program])
+
     st.markdown('<div class="sb-section">📋 Campaign Rules</div>', unsafe_allow_html=True)
     campaign_threshold = st.slider(
         'Campaign Threshold (wells)', 2, 15, 5,
@@ -309,6 +335,7 @@ if run_btn:
             campaign_threshold=campaign_threshold,
             max_deferral_years=max_deferral_years,
             intervention_threshold=intervention_threshold,
+            monitoring_program=monitoring_program,
             on_progress=_on_progress,
         )
         _sim_status.update(label='Simulation complete', state='complete', expanded=False)
@@ -335,6 +362,7 @@ if run_btn:
         scenario_id=scenario_id, failure_prob_multiplier=fpm,
         intervention_threshold=intervention_threshold,
         campaign_threshold=campaign_threshold, max_deferral_years=max_deferral_years,
+        monitoring_program=monitoring_program,
     )
     narrative = generate_executive_narrative(
         failure_df, annual_forecast, campaign_log, lifecycle_summary, params)
@@ -804,6 +832,9 @@ with tabs[5]:
     with col_a:
         if st.button('Add current scenario', use_container_width=True):
             label = _SCENARIO_LABELS.get(params['scenario_id'], params['scenario_id'])
+            mon = params.get('monitoring_program', 'standard')
+            if mon != 'standard':
+                label = f'{label} ({mon} monitoring)'
             st.session_state.scenario_results[label] = ls
             st.success(f'Added "{label}".')
     with col_b:

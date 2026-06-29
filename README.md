@@ -45,8 +45,9 @@ ccs-workover-forecast/
 ├── data/
 │   ├── assumptions/
 │   │   ├── component_failure_assumptions.csv   # MTTF + detection probability database
+│   │   ├── monitoring_config.csv               # Per-tier detection_prob overrides (minimal / standard / comprehensive)
 │   │   ├── assumption_quality.csv              # Source quality, confidence, sensitivity register
-│   │   ├── cost_assumptions.csv
+│   │   ├── cost_assumptions.csv                # Per-event costs, CO₂ uplift factor, post-workover verification
 │   │   └── scenario_config.csv
 │   └── outputs/                    # Downloaded CSVs land here
 └── src/
@@ -73,7 +74,8 @@ Well population
   → Per-well MTTF sampling    (triangular P10/P90 drawn independently per simulation × well)
   → Bathtub curve             (infant 1.5× · useful life 1.0× · wear-out up to 1.8× linear)
   → Bernoulli failure trials
-  → Detection probability     (detected failures → planned preventive at 80% cost)
+  → Detection probability     (tier-specific: minimal/standard/comprehensive from monitoring_config.csv)
+  → Detected failures         → planned preventive at 80% cost
   → Threshold preventive events (cumulative P ≥ 90% → scheduled inspection)
   → Barrier hierarchy         (safety reactive→immediate · preventive→deferrable · monitoring→deferrable)
   → Campaign batching         (deferred queue + size/age triggers; immediate events grouped per year)
@@ -153,9 +155,19 @@ A **bathtub curve lifecycle multiplier** is applied on top of the base probabili
 
 Wear-out multiplier: `1 + ((year − wear_start) / (life − wear_start)) × 0.8` — a linear ramp to 1.8× maximum, reflecting gradual degradation rather than a sudden cliff at end of life.
 
-### Detection and trigger types
+### Detection, monitoring program, and trigger types
 
-Each component has a `detection_prob` — the probability that a developing failure is identified by monitoring, inspection, or wireline survey before it escalates to an unplanned event. Detected failures are reclassified as `preventive` (planned, deferrable, 80% of reactive cost). Undetected failures remain `reactive`.
+Each component has a `detection_prob` — the probability that a developing failure is identified before it escalates to an unplanned event. Detected failures are reclassified as `preventive` (planned, deferrable, 80% of reactive cost). Undetected failures remain `reactive`.
+
+The **monitoring program** selector (Minimal / Standard / Comprehensive) overrides `detection_prob` for every component from `monitoring_config.csv`:
+
+| Program | Technology | Typical detection range |
+|---|---|---|
+| Minimal | Downhole P/T gauges + periodic wireline surveys | 10–75% |
+| Standard (default) | Gauges + annulus pressure monitoring + CBL/caliper surveys | 25–90% |
+| Comprehensive | DTS/DAS fibre + wireless B-annulus + corrosion monitoring | 50–92% |
+
+Full-scale simulations (100 wells) show ~$87M P50 lifecycle cost difference between minimal and comprehensive monitoring, confirming early-detection investment is economic.
 
 A second preventive mechanism fires when **cumulative failure probability** (the product of all annual survivals to date) exceeds the user-set threshold (default 90%). This is the probability of surviving to year *t*, not the single-year probability. A threshold-preventive event is always deferrable and costs 80% of the reactive equivalent.
 
@@ -167,13 +179,19 @@ A user-controlled threshold (70–95%, default 90%) triggers planned interventio
 
 `cost_assumptions.csv` — costs by scenario (`base_case`, `offshore_high_cost`).
 
-| Cost item | Base case |
-|---|---|
-| Rig mobilisation | $2,000,000 / campaign |
-| Full workover | $2,500,000 / well |
-| Light intervention | $500,000 / well |
-| Rigless intervention | $200,000 / event |
-| Deferred injection cost | $50,000 / day / well |
+| Cost item | Base case | Notes |
+|---|---|---|
+| Rig mobilisation | $2,000,000 / campaign | |
+| Full workover | $2,500,000 / well | Before CO₂ uplift |
+| Light intervention | $500,000 / well | Before CO₂ uplift |
+| Rigless intervention | $200,000 / event | Before CO₂ uplift |
+| Deferred injection cost | $50,000 / day / well | |
+| Post-workover verification | $200,000 / full workover | CBL + casing inspection + pressure test |
+| CO₂ handling uplift factor | 1.15× | Applied to all per-event intervention costs |
+
+**CO₂ handling uplift** (1.15× base, 1.20× offshore): covers CO₂-rated BOP equipment and special procedures — per NZTC/DNV CCS Wells Technology Roadmap §4.2.1. Applied multiplicatively to rigless, light, and full workover costs before the scenario cost multiplier.
+
+**Post-workover verification**: mandatory CBL + casing inspection + pressure test required before CO₂ re-injection clearance after any full rig workover. Added as a fixed adder on top of the full workover cost (after CO₂ uplift).
 
 The deferred injection penalty applies to rig workovers sitting in the deferred queue. Cost = (days waiting) × (daily rate) × (deferred rig jobs), summed per well.
 

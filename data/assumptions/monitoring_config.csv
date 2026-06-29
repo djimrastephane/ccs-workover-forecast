@@ -1,0 +1,16 @@
+component,minimal,standard,comprehensive
+trsv,0.50,0.70,0.85
+tubing,0.20,0.40,0.60
+packer,0.20,0.35,0.55
+gauge,0.90,0.90,0.90
+fiber_optics,0.85,0.85,0.85
+wellhead,0.50,0.60,0.75
+tree,0.45,0.55,0.70
+cement_barrier,0.10,0.25,0.50
+casing,0.15,0.30,0.50
+injectivity,0.35,0.50,0.70
+ssv,0.70,0.80,0.90
+casing_valve,0.35,0.55,0.70
+control_line,0.75,0.85,0.92
+tubing_hanger,0.35,0.50,0.65
+injection_flowmeter,0.60,0.70,0.85

@@ -25,6 +25,8 @@ deferred_injection_cost,all,50000,USD/day/well,expert_judgement,low,medium impac
 campaign_threshold,model,5,wells,synthetic_assumption,low,medium impact,No literature reference,Operator scheduling preference
 max_deferral_years,model,3,years,synthetic_assumption,low,low impact,No literature reference,Conservative operational buffer
 intervention_threshold,model,90,percent,expert_judgement,low,high impact,Reliability engineering practice,No direct literature reference for CCS wells
+post_workover_verification_cost,all,200000,USD,expert_judgement,low,medium impact,NZTC/DNV CCS Wells Technology Roadmap 2025 s4.2.3 — intervention integrity evaluation,CBL + casing inspection + pressure test; no standardised CCS cost data available
+co2_handling_uplift_factor,all,1.15,multiplier,expert_judgement,low,medium impact,NZTC/DNV CCS Wells Technology Roadmap 2025 s4.2.1 — CO2 well control considerations,Covers CO2-rated BOP and special procedures; no published benchmark for uplift magnitude
 P10_MTTF,ssv,15,years,literature,medium,medium impact,API 14A / NORSOK D-010 surface safety valve data,Thermal cycling and hydrate risk reduce life in CO2 service
 P90_MTTF,ssv,40,years,literature,medium,medium impact,API 14A qualification data,Extended life with annual functional testing program
 P10_MTTF,casing_valve,20,years,expert_judgement,low,medium impact,Analogue from TRSV and downhole isolation valve data,CCS-specific CIV reliability data largely unavailable
