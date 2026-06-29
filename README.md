@@ -14,7 +14,7 @@ Given a population of CCS wells and their component reliability assumptions, the
 
 > *How many failures and workovers will emerge over time, and what resources will be needed?*
 
-It produces P10/P50/P90 workover demand, lifecycle cost distributions, campaign batching plans, and scenario comparisons — all traceable back to the underlying assumptions.
+It produces P10/P50/P90 workover demand, lifecycle cost distributions, campaign batching plans, scenario comparisons, and a model QA audit — all traceable back to the underlying assumptions.
 
 ---
 
@@ -40,24 +40,28 @@ Then open http://localhost:8501 in your browser.
 
 ```
 ccs-workover-forecast/
-├── app.py                          # Streamlit dashboard (7 tabs)
+├── app.py                          # Streamlit dashboard (8 tabs)
 ├── requirements.txt
 ├── data/
 │   ├── assumptions/
-│   │   ├── component_failure_assumptions.csv   # MTTF database
+│   │   ├── component_failure_assumptions.csv   # MTTF + detection probability database
+│   │   ├── assumption_quality.csv              # Source quality, confidence, sensitivity register
 │   │   ├── cost_assumptions.csv
 │   │   └── scenario_config.csv
 │   └── outputs/                    # Downloaded CSVs land here
 └── src/
     ├── config_loader.py            # Loads CSV assumptions
     ├── reliability_model.py        # MTTF sampling, bathtub curve, cumulative probability
-    ├── failure_generator.py        # Vectorised failure + preventive event generation
+    ├── failure_generator.py        # Vectorised failure + detection + preventive event generation
     ├── intervention_engine.py      # Barrier hierarchy and escalation rules
-    ├── campaign_scheduler.py       # Deferred queue batching
+    ├── campaign_scheduler.py       # Deferred queue batching; immediate event grouping
     ├── economics.py                # Cost aggregation and P10/P50/P90 summary
     ├── simulation.py               # Monte Carlo orchestration
     ├── reporting.py                # Aggregation, health index, heatmap data, narratives
-    └── plotting.py                 # Plotly chart functions
+    ├── plotting.py                 # Plotly chart functions
+    ├── calibration.py              # Calibration score and uncertainty decomposition
+    ├── explainability.py           # Plain-language KPI traceability narratives
+    └── qa.py                       # Validation metrics and sanity checks
 ```
 
 ---
@@ -66,14 +70,16 @@ ccs-workover-forecast/
 
 ```
 Well population
-  → MTTF sampling          (triangular P10/P90 per simulation per component)
-  → Bathtub curve          (infant 1.5× · useful life 1.0× · wear-out up to 1.8× linear)
-  → Bernoulli failure trials + detection probability → planned vs reactive
+  → Per-well MTTF sampling    (triangular P10/P90 drawn independently per simulation × well)
+  → Bathtub curve             (infant 1.5× · useful life 1.0× · wear-out up to 1.8× linear)
+  → Bernoulli failure trials
+  → Detection probability     (detected failures → planned preventive at 80% cost)
   → Threshold preventive events (cumulative P ≥ 90% → scheduled inspection)
-  → Barrier hierarchy      (safety reactive→immediate · preventive→deferrable · monitoring→deferrable)
-  → Campaign batching      (deferred queue + size/age triggers)
-  → Economics              (per-event cost + mob overhead + deferred injection penalty)
+  → Barrier hierarchy         (safety reactive→immediate · preventive→deferrable · monitoring→deferrable)
+  → Campaign batching         (deferred queue + size/age triggers; immediate events grouped per year)
+  → Economics                 (per-event cost + mob overhead + deferred injection penalty)
   → P10/P50/P90 outputs
+  → Model QA audit            (calibration score, uncertainty decomposition, sanity checks)
   → Dashboard + CSV exports
 ```
 
@@ -98,12 +104,12 @@ All assumptions live in `data/assumptions/`. Edit the CSVs to change reliability
 | `consequence_level` | 1 (Negligible) to 5 (Catastrophic) — drives the risk matrix position |
 | `intervention_type` | `full_workover` / `light_intervention` / `rigless_intervention` |
 | `can_defer` | Whether the intervention can be queued for batching |
-| `safety_critical` | Forces immediate intervention regardless of batching rules |
+| `safety_critical` | Forces reactive failures to immediate regardless of batching rules |
 | `default_cost` | Per-event cost used when cost assumptions don't override |
 | `default_duration_days` | Typical intervention duration |
 | `injector_only` | Component only present on injection wells |
 | `trsv_only` | Component only enabled when TRSV/SCSSV is active (offshore config) |
-| `detection_prob` | Probability that a developing failure is detected before it becomes reactive |
+| `detection_prob` | Probability a developing failure is caught before becoming a reactive emergency |
 
 Ten components are modelled across four barrier classes:
 
@@ -120,11 +126,13 @@ Ten components are modelled across four barrier classes:
 | P/T Gauge | Monitoring | 15 yr | 26 yr | Rigless | 90% |
 | Fiber Optics | Monitoring | 12 yr | 26 yr | Rigless | 85% |
 
-Safety barriers (TRSV, Cement, Casing) have long MTTF because they are designed to be the last line of defence — failures are rare, high-consequence events, not routine cost drivers. Detection probability is lower for safety barriers because defects (micro-annuli, casing corrosion) develop below the surface and are hard to detect without integrity testing.
+Safety barriers (TRSV, Cement, Casing) carry long MTTF values reflecting their role as the last line of defence — failures are rare, high-consequence events, not routine cost drivers. Detection probability is low for safety barriers because defects (micro-annuli, casing corrosion) develop below the surface and are hard to identify without integrity testing programmes.
 
 ### Reliability model
 
-Each simulation draws an MTTF value per component from a triangular distribution between P10 and P90 (mode at midpoint). Annual failure probability is derived via the exponential reliability model:
+Each simulation draws an MTTF value **independently per (simulation, well)** from a triangular distribution between P10 and P90 (mode at midpoint). Drawing per well rather than per simulation prevents the artefact where all wells in a simulation age in lockstep and fail in the same year.
+
+Annual failure probability is derived via the exponential reliability model:
 
 ```
 P(fail) = 1 − exp(−1 / sampled_MTTF)
@@ -138,13 +146,17 @@ A **bathtub curve lifecycle multiplier** is applied on top of the base probabili
 | Useful life | 3–70% of field life | 1.0× | Random, uncorrelated failures |
 | Wear-out | Final 30% of field life | 1.0× → 1.8× | Corrosion, fatigue, elastomer degradation, injectivity decline |
 
-The wear-out multiplier increases linearly as `1 + ((year − wear_start) / (life − wear_start)) × 0.8`. A linear ramp (max 1.8×) reflects gradual degradation; the previous quadratic ramp (max 3.0×) created an unrealistic cliff at end of life.
+Wear-out multiplier: `1 + ((year − wear_start) / (life − wear_start)) × 0.8` — a linear ramp to 1.8× maximum, reflecting gradual degradation rather than a sudden cliff at end of life.
+
+### Detection and trigger types
+
+Each component has a `detection_prob` — the probability that a developing failure is identified by monitoring, inspection, or wireline survey before it escalates to an unplanned event. Detected failures are reclassified as `preventive` (planned, deferrable, 80% of reactive cost). Undetected failures remain `reactive`.
+
+A second preventive mechanism fires when **cumulative failure probability** (the product of all annual survivals to date) exceeds the user-set threshold (default 90%). This is the probability of surviving to year *t*, not the single-year probability. A threshold-preventive event is always deferrable and costs 80% of the reactive equivalent.
 
 ### Intervention probability threshold
 
-A user-controlled threshold (70–95%, default 90%) triggers **preventive interventions** when the cumulative failure probability of a component exceeds that level. Preventive events are planned, deferrable, and priced at 80% of the reactive cost to reflect the saving from scheduling in advance.
-
-Reducing the threshold increases planned interventions and total cost, but lowers unplanned failure risk.
+A user-controlled threshold (70–95%, default 90%) triggers planned interventions before cumulative failure probability crosses that level. Reducing the threshold increases planned cost but reduces unplanned emergency campaigns.
 
 ### Cost assumptions
 
@@ -158,19 +170,19 @@ Reducing the threshold increases planned interventions and total cost, but lower
 | Rigless intervention | $200,000 / event |
 | Deferred injection cost | $50,000 / day / well |
 
-The deferred injection penalty applies to rig workovers that sit in the deferred queue. Cost = (days waiting) × (daily rate) × (number of deferred rig jobs), summed per well.
+The deferred injection penalty applies to rig workovers sitting in the deferred queue. Cost = (days waiting) × (daily rate) × (deferred rig jobs), summed per well.
 
 ### Scenario configuration
 
-`scenario_config.csv` — five built-in scenarios with failure probability multipliers and cost multipliers.
+`scenario_config.csv` — five built-in scenarios with failure probability and cost multipliers.
 
-| Scenario | Failure multiplier | Cost multiplier |
-|---|---|---|
-| Base Case | 1.0× | 1.0× |
-| Conservative Design | 0.6× | 1.1× |
-| Low-Cost Design | 1.5× | 0.9× |
-| High Corrosion | 1.8× | 1.0× |
-| Offshore High-Cost | 1.2× | 1.6× |
+| Scenario | Failure multiplier | Cost multiplier | Notes |
+|---|---|---|---|
+| Base Case | 1.0× | 1.0× | Balanced baseline |
+| Conservative Design | 0.6× | 1.1× | High-spec wells, premium materials |
+| Low-Cost Design | 1.5× | 0.9× | Cost-optimised, higher failure risk |
+| High Corrosion | 1.8× | 1.3× | Aggressive CO₂ corrosion; higher intervention complexity |
+| Offshore High-Cost | 1.2× | 1.6× | Deepwater or harsh environment |
 
 ---
 
@@ -178,13 +190,14 @@ The deferred injection penalty applies to rig workovers that sit in the deferred
 
 | Tab | Contents |
 |---|---|
-| Executive Summary | KPI cards (P50/P90 workovers, lifecycle cost, peak demand, threshold split), dynamic asset health index with per-component scores, executive narrative |
+| Executive Summary | KPI cards (P50/P90 workovers, lifecycle cost, peak demand, threshold split), asset health index, KPI traceability expanders, executive narrative |
 | Lifecycle Forecast | Annual P10/P50/P90 workover fan chart, bathtub curve with phase annotations, cost fan chart |
-| Risk & Failure Modes | 5×5 risk matrix, component lifecycle failure probability heatmap, cost contribution breakdown |
+| Risk & Failure Modes | 5×5 risk matrix, component lifecycle failure probability heatmap, cost contribution breakdown, risk traceability |
 | Campaign Planning | Bubble Gantt across sample simulations, deferred queue evolution, immediate vs deferred split |
-| Economics | Waterfall cost breakdown (average per simulation), lifecycle cost distribution, cost by component |
-| Scenario Comparison | Add results from multiple scenario runs to compare side by side |
-| Assumptions | Live view of all CSV assumption tables |
+| Economics | Waterfall cost breakdown, lifecycle cost distribution, cost by component, cost traceability |
+| Scenario Comparison | Side-by-side comparison of multiple scenario runs |
+| Model QA | Calibration score, assumption quality register, critical calibration gaps, MTTF uncertainty tornado, validation metrics, sanity checks, campaign type breakdown |
+| Assumptions | Live view of all CSV assumption tables with quality register and engineering defensibility panel |
 
 ---
 
@@ -192,9 +205,9 @@ The deferred injection penalty applies to rig workovers that sit in the deferred
 
 | File | Contents |
 |---|---|
-| `failure_event_log.csv` | Every simulated failure event — includes `trigger_type`, `sampled_mttf`, `lifecycle_multiplier`, `adjusted_probability` |
+| `failure_event_log.csv` | Every simulated event — includes `trigger_type`, `sampled_mttf`, `lifecycle_multiplier`, `adjusted_probability` |
 | `annual_forecast.csv` | Per-year P10/P50/P90 intervention and workover demand |
-| `campaign_log.csv` | Every simulated campaign with type, size, cost breakdown |
+| `campaign_log.csv` | Every campaign with type, size, cost breakdown |
 | `simulation_summary.csv` | Lifecycle P10/P50/P90 statistics for the active run |
 | `annual_economics.csv` | Annual cost breakdown (intervention + mob + deferred injection) |
 
@@ -206,7 +219,8 @@ The deferred injection penalty applies to rig workovers that sit in the deferred
 
 - `estimated_cost` (per event) covers all per-intervention costs including materials and rig time.
 - `mobilisation_cost` (per campaign) is the rig mob/demob overhead added once per campaign.
-- `deferred_injection_cost` is the CO₂ storage revenue lost while a workover waits in the deferred queue, calculated as the sum of each deferred rig well's actual waiting time in days × daily rate.
+- `deferred_injection_cost` is the CO₂ storage revenue lost while a workover waits in the deferred queue.
+- Planned interventions (preventive or threshold-triggered) are priced at 80% of the equivalent reactive cost.
 - Total lifecycle cost = sum of all three. No double-counting.
 
 ### Barrier hierarchy
@@ -214,14 +228,10 @@ The deferred injection penalty applies to rig workovers that sit in the deferred
 The intervention engine applies priority rules based on `barrier_class` and `trigger_type`:
 
 - **Safety reactive** (undetected TRSV, Cement, Casing failures) — always immediate emergency campaign.
-- **Safety preventive** (caught by inspection / monitoring) — deferrable; scheduled into a planned campaign.
+- **Safety preventive** (caught by inspection or monitoring) — deferrable; treated as planned maintenance.
 - **Production** (Tubing, Packer, Wellhead, Tree) — deferrable; batched into campaigns unless escalated.
 - **Monitoring** (Gauge, Fiber Optics) — always deferrable regardless of trigger type.
-- **Flow assurance** (Injectivity) — rigless intervention first; escalates to full workover on the second failure on the same well.
-
-### Detection and trigger types
-
-Each component has a `detection_prob` — the probability that a developing failure is identified through monitoring, inspection, or wireline surveys before it progresses to an unplanned event. Detected failures are reclassified as `preventive` (planned, deferred, 80% of reactive cost). Undetected failures remain `reactive`. The threshold mechanism also generates preventive events when cumulative failure probability exceeds the user-set threshold.
+- **Flow assurance** (Injectivity) — rigless intervention first; escalates to full workover on the second failure per well.
 
 ### Escalation rule
 
@@ -230,31 +240,32 @@ If a well accumulates ≥ 2 medium-or-high severity **reactive** failures within
 ### Campaign trigger logic
 
 Deferred interventions accumulate in a per-simulation queue. A batch campaign fires when either:
-- The queue reaches `campaign_threshold` wells (default 5), or
+- The queue reaches `campaign_threshold` events (default 5), or
 - The oldest queued item has waited `max_deferral_years` years (default 3).
 
-Immediate interventions within the same year are grouped into campaigns rather than executed as individual mobilisations:
-- Emergency events (reactive safety failures in the same year): one shared emergency campaign.
-- Urgent events (escalated production failures in the same year): one shared urgent campaign.
+Immediate interventions within the same year are grouped rather than executed as individual mobilisations:
+- Emergency events (reactive safety failures): one shared emergency campaign per year.
+- Urgent events (escalated production failures): one shared urgent campaign per year.
 
 ### Randomness and reproducibility
 
-The global random seed (default 42) is set once in `run_simulation()`. The same inputs always produce the same results. Change the seed in `src/simulation.py` for a different draw.
+The global random seed (default 42) is set once in `run_simulation()`. The same inputs always produce the same outputs. Change the seed in `src/simulation.py` for an independent draw.
 
 ---
 
 ## Known limitations
 
-1. **No well state after repair** — a repaired component has the same MTTF as a new one. A repair-to-as-new vs repair-to-as-old distinction would improve late-life accuracy.
-2. **No rig availability constraint** — the scheduler does not cap simultaneous campaigns by rig count.
+1. **No component renewal after repair** — a repaired component restarts with the same MTTF distribution as a new one (repair-to-as-new). A repair-to-as-old distinction would improve late-life accuracy.
+2. **No rig availability constraint** — the scheduler does not cap simultaneous campaigns by rig count or vessel availability.
 3. **Single deferred injection rate** — all deferred rig workovers are penalised at the same daily rate regardless of well productivity.
-4. **No spatial or cluster logic** — all wells are treated as independent.
-5. **Exponential (memoryless) failure model** — Weibull shape parameter is not yet implemented; the current model does not capture increasing hazard within a phase beyond the bathtub multiplier.
+4. **No spatial or cluster logic** — all wells are treated as independent. Geographic clustering of campaigns is not modelled.
+5. **Exponential (memoryless) failure model within phases** — the bathtub curve captures phase-level hazard change but the exponential model within each phase has no memory. Weibull shape parameter is not yet implemented.
+6. **Low calibration score (41/100)** — several high-sensitivity parameters (cement P90 MTTF, packer P90 MTTF, injectivity P90 MTTF, intervention threshold) rely on expert judgement or synthetic assumptions with no direct CCS field data. Outputs should be treated as order-of-magnitude planning estimates, not engineering commitments. The Model QA tab shows the full breakdown.
 
 ## Recommended next improvements
 
-1. Add Weibull shape parameter to capture intra-phase hazard growth (infrastructure already in `reliability_model.py`).
+1. Add Weibull shape parameter to capture intra-phase increasing hazard.
 2. Add a rig fleet capacity constraint to cap simultaneous campaigns.
-3. Add per-well repair history to track cumulative failure counts and adjust future MTTF.
+3. Add per-well repair history to adjust future MTTF based on cumulative failure count.
 4. Enable CSV upload in the Assumptions tab for project-specific calibration without file editing.
-5. Add a sensitivity tornado chart showing which MTTF assumption has the largest impact on P90 lifecycle cost.
+5. Field-calibrate the high-sensitivity parameters (cement MTTF, packer MTTF, intervention threshold) using CCS pilot data as it becomes available.
