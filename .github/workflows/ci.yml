@@ -79,7 +79,8 @@ jobs:
           comps = set(failure_df['component'].unique())
           expected = {'tubing', 'packer', 'gauge', 'fiber_optics',
                       'wellhead', 'tree', 'cement_barrier', 'casing', 'injectivity',
-                      'ssv', 'casing_valve', 'control_line', 'tubing_hanger'}
+                      'ssv', 'casing_valve', 'control_line', 'tubing_hanger',
+                      'injection_flowmeter'}
           assert expected.issubset(comps), f'Missing components: {expected - comps}'
 
           assert 'reactive' in failure_df['trigger_type'].values, 'No reactive failures'

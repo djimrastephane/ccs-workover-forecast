@@ -41,10 +41,11 @@ _FAILURE_MODES = {
     'cement_barrier':  'micro_annulus',
     'casing':          'integrity_loss',
     'injectivity':     'scale_plugging',
-    'ssv':             'valve_failure',
-    'casing_valve':    'seal_failure',
-    'control_line':    'hydraulic_leak',
-    'tubing_hanger':   'seal_failure',
+    'ssv':                  'valve_failure',
+    'casing_valve':         'seal_failure',
+    'control_line':         'hydraulic_leak',
+    'tubing_hanger':        'seal_failure',
+    'injection_flowmeter':  'sensor_failure',
 }
 
 _BARRIER_PRIORITY = {

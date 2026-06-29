@@ -33,3 +33,5 @@ P10_MTTF,control_line,10,years,literature,medium,medium impact,OREDA / NORSOK D-
 P90_MTTF,control_line,25,years,literature,medium,medium impact,Offshore analogue from HP/HT completions,Inhibited hydraulic fluid and cathodic protection assumed
 P10_MTTF,tubing_hanger,30,years,expert_judgement,low,medium impact,Analogue from API 6A wellhead seal qualification,Seal material compatibility with CO2 poorly characterised
 P90_MTTF,tubing_hanger,70,years,expert_judgement,low,medium impact,Design life analogue from North Sea wellhead programmes,Low failure rate expected; long tail from robust qualification
+P10_MTTF,injection_flowmeter,8,years,expert_judgement,low,medium impact,NZTC/DNV CCS Wells Technology Roadmap 2025 — §4.3.1,CO2 multiphase/supercritical conditions reduce calibration stability; limited field-proven data
+P90_MTTF,injection_flowmeter,22,years,expert_judgement,low,medium impact,Analogue from offshore subsea Venturi meters in North Sea,Extended life assumes regular calibration and CO2-rated materials

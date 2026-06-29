@@ -111,22 +111,27 @@ All assumptions live in `data/assumptions/`. Edit the CSVs to change reliability
 | `trsv_only` | Component only enabled when TRSV/SCSSV is active (offshore config) |
 | `detection_prob` | Probability a developing failure is caught before becoming a reactive emergency |
 
-Ten components are modelled across four barrier classes:
+Fifteen components are modelled across four barrier classes, covering the taxonomy in the NZTC/DNV CCS Wells Technology Roadmap (2025):
 
-| Component | Barrier class | P10 MTTF | P90 MTTF | Intervention type | Detection prob |
-|---|---|---|---|---|---|
-| TRSV / SCSSV | Safety | 40 yr | 90 yr | Rigless | 70% |
-| Cement Barrier | Safety | 50 yr | 120 yr | Full workover | 25% |
-| Casing | Safety | 60 yr | 150 yr | Full workover | 30% |
-| Tubing String | Production | 35 yr | 55 yr | Full workover | 40% |
-| Injection Packer | Production | 25 yr | 50 yr | Full workover | 35% |
-| Wellhead | Production | 45 yr | 75 yr | Light intervention | 60% |
-| Tree | Production | 40 yr | 70 yr | Light intervention | 55% |
-| Injectivity / Flow Assurance | Flow assurance | 8 yr | 20 yr | Rigless (escalates) | 50% |
-| P/T Gauge | Monitoring | 15 yr | 26 yr | Rigless | 90% |
-| Fiber Optics | Monitoring | 12 yr | 26 yr | Rigless | 85% |
+| Component | Barrier class | P10 MTTF | P90 MTTF | Intervention type | Detection prob | Notes |
+|---|---|---|---|---|---|---|
+| TRSV / SCSSV | Safety | 40 yr | 90 yr | Rigless | 70% | trsv_only |
+| Cement Barrier | Safety | 50 yr | 120 yr | Full workover | 25% | |
+| Casing | Safety | 60 yr | 150 yr | Full workover | 30% | |
+| Surface Safety Valve | Safety | 15 yr | 40 yr | Rigless | 80% | |
+| Casing Isolation Valve | Safety | 20 yr | 55 yr | Light | 55% | CCS-specific barrier |
+| Tubing Hanger Seal | Safety | 30 yr | 70 yr | Light | 50% | |
+| Tubing String | Production | 35 yr | 55 yr | Full workover | 40% | |
+| Injection Packer | Production | 25 yr | 50 yr | Full workover | 35% | |
+| Wellhead | Production | 45 yr | 75 yr | Light | 60% | |
+| Tree | Production | 40 yr | 70 yr | Light | 55% | |
+| Hydraulic Control Line | Production | 10 yr | 25 yr | Rigless | 85% | trsv_only |
+| Injectivity / Flow Assurance | Flow assurance | 8 yr | 20 yr | Rigless (escalates) | 50% | injector_only |
+| P/T Gauge | Monitoring | 15 yr | 26 yr | Rigless | 90% | |
+| Fiber Optics | Monitoring | 12 yr | 26 yr | Rigless | 85% | |
+| CO₂ Injection Flow Meter | Monitoring | 8 yr | 22 yr | Rigless | 70% | injector_only; MMV compliance |
 
-Safety barriers (TRSV, Cement, Casing) carry long MTTF values reflecting their role as the last line of defence — failures are rare, high-consequence events, not routine cost drivers. Detection probability is low for safety barriers because defects (micro-annuli, casing corrosion) develop below the surface and are hard to identify without integrity testing programmes.
+Safety barriers (TRSV, Cement, Casing, SSV, CIV, Tubing Hanger) carry longer MTTF values reflecting their role as the last line of defence — failures are rare, high-consequence events, not routine cost drivers. Detection probability is low for downhole safety barriers because defects (micro-annuli, casing corrosion) develop below the surface and are hard to identify without integrity testing programmes.
 
 ### Reliability model
 
@@ -261,6 +266,9 @@ The global random seed (default 42) is set once in `run_simulation()`. The same 
 4. **No spatial or cluster logic** — all wells are treated as independent. Geographic clustering of campaigns is not modelled.
 5. **Exponential (memoryless) failure model within phases** — the bathtub curve captures phase-level hazard change but the exponential model within each phase has no memory. Weibull shape parameter is not yet implemented.
 6. **Low calibration score (41/100)** — several high-sensitivity parameters (cement P90 MTTF, packer P90 MTTF, injectivity P90 MTTF, intervention threshold) rely on expert judgement or synthetic assumptions with no direct CCS field data. Outputs should be treated as order-of-magnitude planning estimates, not engineering commitments. The Model QA tab shows the full breakdown.
+7. **Joule-Thomson cooling not explicitly modelled** — CO₂ depressurisation during well control events can cool valves to −78 °C (confirmed by the NZTC SSSV JIP tests down to −78.5 °C). This extreme thermal shock is a CCS-specific failure driver for TRSV, SSV, and packers; it is currently absorbed into the conservative MTTF assumptions rather than modelled as a distinct mechanism.
+8. **Thermal/pressure cycling degradation not captured** — cyclical CO₂ injection causes progressive cement debonding, casing fatigue, and elastomer creep beyond what the bathtub wear-out ramp captures. A future cyclic-fatigue degradation model would improve late-life cement and packer accuracy.
+9. **Legacy wells not in scope** — existing oil and gas wellbores within a CO₂ storage complex are a documented major containment risk (NZTC/DNV §4.4). The model covers new-build CCS wells only; legacy well re-entry and remediation costs are not included.
 
 ## Recommended next improvements
 
@@ -269,3 +277,19 @@ The global random seed (default 42) is set once in `run_simulation()`. The same 
 3. Add per-well repair history to adjust future MTTF based on cumulative failure count.
 4. Enable CSV upload in the Assumptions tab for project-specific calibration without file editing.
 5. Field-calibrate the high-sensitivity parameters (cement MTTF, packer MTTF, intervention threshold) using CCS pilot data as it becomes available.
+6. Add a legacy-well module to model remediation campaigns for pre-existing O&G wellbores within the storage licence area.
+7. Implement a cyclic-fatigue multiplier on cement and elastomeric seals to reflect injection pressure cycling over multi-decade operation.
+
+---
+
+## Key references
+
+| Reference | Relevance |
+|---|---|
+| SPE-232388-MS | Original inspiration for modelling CCS well integrity over a long operating life |
+| [NZTC / DNV — CCS Wells Technology Roadmap (2025)](https://www.netzerotc.com/wp-content/uploads/2025/10/CCS_Wells_Technology_Roadmap_report.pdf) | Component taxonomy, CCS-specific failure mechanisms (Joule-Thomson, carbonation, thermal cycling), intervention and monitoring technology landscape |
+| ISO 27914:2017 | CO₂ geological storage — well infrastructure, integrity, and monitoring requirements |
+| IOGP Report 676 | Well abandonment and integrity evaluation for CO₂ storage |
+| NORSOK D-010 | Well integrity in drilling and well operations; used to guide CCS well construction and MTTF analogues |
+| DNV-RP-J203 | Geological storage of CO₂ — recommended practices for MMV and well assessment |
+| IAGHG Technical Report 2018-08 | Well engineering and injection regularity in CO₂ storage wells |

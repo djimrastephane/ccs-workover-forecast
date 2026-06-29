@@ -13,3 +13,4 @@ ssv,Surface Safety Valve,surface,safety,15,40,4,rigless_intervention,false,true,
 casing_valve,Casing Isolation Valve,downhole_safety,safety,20,55,4,light_intervention,false,true,500000,4,false,false,0.55
 control_line,Hydraulic Control Line,downhole_safety,production,10,25,3,rigless_intervention,true,false,200000,3,false,true,0.85
 tubing_hanger,Tubing Hanger Seal,surface,safety,30,70,4,light_intervention,false,true,500000,5,false,false,0.50
+injection_flowmeter,CO2 Injection Flow Meter,monitoring,monitoring,8,22,3,rigless_intervention,true,false,300000,3,true,false,0.70
