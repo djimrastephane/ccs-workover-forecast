@@ -23,6 +23,7 @@ def run_simulation(
     max_deferral_years: int = 3,
     intervention_threshold: float = 0.90,
     seed: int = 42,
+    on_progress=None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """
     Orchestrate the full Monte Carlo simulation pipeline.
@@ -37,9 +38,14 @@ def run_simulation(
 
     Returns: (failure_df, campaign_log, annual_costs, lifecycle_summary)
     """
+    def _progress(msg: str, frac: float):
+        if on_progress is not None:
+            on_progress(msg, frac)
+
     rng = np.random.default_rng(seed)
 
     # ── Load assumptions ──────────────────────────────────────────────────────
+    _progress('Loading assumptions…', 0.02)
     component_assumptions = load_component_assumptions()
     intervention_rules = load_intervention_rules()
     scenario_cfg = load_scenario_config()
@@ -62,6 +68,7 @@ def run_simulation(
     cost_assumptions = {k: v * cost_multiplier for k, v in raw_costs.items()}
 
     # ── Generate failures (vectorised across all simulations) ─────────────────
+    _progress(f'Generating failure events across {n_simulations:,} simulations…', 0.10)
     failure_df = generate_all_failures(
         n_simulations=n_simulations,
         n_injectors=n_injectors,
@@ -80,9 +87,11 @@ def run_simulation(
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}
 
     # ── Apply intervention decision rules ─────────────────────────────────────
+    _progress('Applying barrier hierarchy and escalation rules…', 0.75)
     failure_df = apply_intervention_decisions(failure_df)
 
     # ── Schedule campaigns ────────────────────────────────────────────────────
+    _progress('Scheduling campaigns…', 0.85)
     campaign_log = schedule_campaigns(
         failure_df,
         cost_assumptions,
@@ -92,7 +101,9 @@ def run_simulation(
     )
 
     # ── Economics ─────────────────────────────────────────────────────────────
+    _progress('Computing lifecycle economics…', 0.93)
     annual_costs = compute_annual_economics(failure_df, campaign_log, operating_years)
     lifecycle_summary = compute_lifecycle_summary(annual_costs, campaign_log, failure_df)
 
+    _progress('Done.', 1.0)
     return failure_df, campaign_log, annual_costs, lifecycle_summary

@@ -292,7 +292,14 @@ if 'scenario_results' not in st.session_state:
 
 # ── Run simulation ────────────────────────────────────────────────────────────
 if run_btn:
-    with st.spinner(f'Running {n_simulations:,} simulations …'):
+    with st.status(f'Running {n_simulations:,} simulations…', expanded=True) as _sim_status:
+        _progress_bar = st.progress(0.0)
+        _step_text    = st.empty()
+
+        def _on_progress(message: str, fraction: float):
+            _step_text.markdown(f'`{message}`')
+            _progress_bar.progress(min(fraction, 1.0))
+
         failure_df, campaign_log, annual_costs, lifecycle_summary = run_simulation(
             n_simulations=n_simulations,
             n_injectors=n_injectors,
@@ -302,7 +309,9 @@ if run_btn:
             campaign_threshold=campaign_threshold,
             max_deferral_years=max_deferral_years,
             intervention_threshold=intervention_threshold,
+            on_progress=_on_progress,
         )
+        _sim_status.update(label='Simulation complete', state='complete', expanded=False)
 
     scenario_cfg = load_scenario_config()
     fpm = float(scenario_cfg.loc[scenario_id, 'failure_prob_multiplier']) \
