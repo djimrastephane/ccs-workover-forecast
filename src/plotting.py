@@ -872,7 +872,7 @@ def plot_tornado_chart(tornado_df: 'pd.DataFrame') -> go.Figure:
         return _dark(go.Figure())
 
     # Show top 8 by swing, plotted bottom-to-top (ascending for horizontal bar)
-    df = tornado_df.head(8).sort_values('swing')
+    df = tornado_df.sort_values('swing')
 
     fig = go.Figure()
 
@@ -937,4 +937,5 @@ def plot_tornado_chart(tornado_df: 'pd.DataFrame') -> go.Figure:
         )],
         margin=dict(l=160, r=60, t=60, b=60),
     )
-    return _dark(fig, 440)
+    height = max(440, len(df) * 46 + 120)
+    return _dark(fig, height)
