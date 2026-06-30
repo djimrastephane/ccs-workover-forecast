@@ -1344,14 +1344,14 @@ def _render_calibration():
         st.info('Load observed events and select a field to compute calibration factors.')
     else:
         _cf_display = cal_factors[[
-            'display_name', 'mode_mttf', 'expected_failures',
-            'observed_failures', 'calibration_factor', 'confidence',
-            'effective_factor', 'recommended_mttf',
+            'display_name', 'mode_mttf', 'total_well_years', 'bathtub_exposure',
+            'expected_failures', 'observed_failures', 'calibration_factor',
+            'confidence', 'effective_factor', 'recommended_mttf',
         ]].copy()
         _cf_display.columns = [
-            'Component', 'Mode MTTF (yr)', 'Expected Failures',
-            'Observed Failures', 'Calibration Factor', 'Confidence',
-            'Effective Factor', 'Recommended MTTF (yr)',
+            'Component', 'Mode MTTF (yr)', 'Raw Well-Years', 'Bathtub Exposure',
+            'Expected Failures', 'Observed Failures', 'Calibration Factor',
+            'Confidence', 'Effective Factor', 'Recommended MTTF (yr)',
         ]
 
         def _style_row(row):
@@ -1363,6 +1363,15 @@ def _render_calibration():
             if cf < 0.5:
                 return ['background-color:#1f2a0a;color:#a3e635'] * len(row)
             return [''] * len(row)
+
+        # Tooltip explaining the two exposure columns
+        st.caption(
+            '**Raw Well-Years**: simple sum of observation windows per well. '
+            '**Bathtub Exposure**: well-years weighted by lifecycle phase multiplier '
+            '(1.5× infant mortality yrs 1–2; 1.0× useful life; up to 1.8× wear-out). '
+            'Expected Failures = base rate × Bathtub Exposure — so the calibration factor '
+            'corrects only for MTTF error, not lifecycle phase effects.'
+        )
 
         st.caption(
             'Red rows: observed failures significantly exceed model expectations (optimistic assumptions). '
