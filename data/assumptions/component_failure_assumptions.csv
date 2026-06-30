@@ -3,7 +3,7 @@ trsv,TRSV / SCSSV,downhole_safety,safety,40,90,5,rigless_intervention,false,true
 tubing,Tubing String,tubulars,production,35,55,4,full_workover,true,false,2500000,14,false,false,0.40
 packer,Injection Packer,tubulars,production,25,50,4,full_workover,true,false,2500000,10,false,false,0.35
 gauge,P/T Gauge,monitoring,monitoring,15,26,2,rigless_intervention,true,false,150000,1,false,false,0.90
-fiber_optics,Fiber Optics,monitoring,monitoring,12,26,2,rigless_intervention,true,false,100000,1,false,false,0.85
+fiber_optics,Fiber Optics,monitoring,monitoring,12,26,2,full_workover,true,false,2500000,14,false,false,0.85
 wellhead,Wellhead,surface,production,45,75,4,light_intervention,true,false,500000,3,false,false,0.60
 tree,Tree,surface,production,40,70,4,light_intervention,true,false,500000,3,false,false,0.55
 cement_barrier,Cement Barrier,barriers,safety,50,120,5,full_workover,false,true,2500000,21,false,false,0.25
@@ -12,5 +12,5 @@ injectivity,Injectivity / Flow Assurance,completion,flow_assurance,8,20,3,rigles
 ssv,Surface Safety Valve,surface,safety,15,40,4,rigless_intervention,false,true,200000,2,false,false,0.80
 casing_valve,Casing Isolation Valve,downhole_safety,safety,20,55,4,light_intervention,false,true,500000,4,false,false,0.55
 control_line,Hydraulic Control Line,downhole_safety,safety,10,25,4,full_workover,false,true,2500000,14,false,true,0.85
-tubing_hanger,Tubing Hanger Seal,surface,safety,30,70,4,light_intervention,false,true,500000,5,false,false,0.50
+tubing_hanger,Tubing Hanger Seal,surface,safety,30,70,4,full_workover,false,true,2500000,14,false,false,0.50
 injection_flowmeter,CO2 Injection Flow Meter,monitoring,monitoring,8,22,3,rigless_intervention,true,false,300000,3,true,false,0.70

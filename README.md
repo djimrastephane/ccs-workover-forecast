@@ -137,14 +137,14 @@ All assumptions live in `data/assumptions/`. Edit the CSVs to change reliability
 
 Fifteen components are modelled across four barrier classes, covering the taxonomy in the NZTC/DNV CCS Wells Technology Roadmap (2025):
 
-| Component | Barrier class | P10 MTTF | P90 MTTF | Intervention type | Detection prob | Notes |
+| Component | Barrier class | P10 MTTF | P90 MTTF | Intervention type | Detection prob (standard tier) | Notes |
 |---|---|---|---|---|---|---|
-| TRSV / SCSSV | Safety | 40 yr | 90 yr | Rigless | 70% | trsv_only |
+| TRSV / SCSSV | Safety | 40 yr | 90 yr | Rigless | 70% | trsv_only; assumes wireline-retrievable (WRTRSV) design |
 | Cement Barrier | Safety | 50 yr | 120 yr | Full workover | 25% | |
 | Casing | Safety | 60 yr | 150 yr | Full workover | 30% | |
 | Surface Safety Valve | Safety | 15 yr | 40 yr | Rigless | 80% | |
 | Casing Isolation Valve | Safety | 20 yr | 55 yr | Light | 55% | CCS-specific barrier |
-| Tubing Hanger Seal | Safety | 30 yr | 70 yr | Light | 50% | |
+| Tubing Hanger Seal | Safety | 30 yr | 70 yr | Full workover | 50% | primary metal-to-metal seal failure requires pulling tubing |
 | Tubing String | Production | 35 yr | 55 yr | Full workover | 40% | |
 | Injection Packer | Production | 25 yr | 50 yr | Full workover | 35% | |
 | Wellhead | Production | 45 yr | 75 yr | Light | 60% | |
@@ -152,7 +152,7 @@ Fifteen components are modelled across four barrier classes, covering the taxono
 | Hydraulic Control Line | Safety | 10 yr | 25 yr | Full workover | 85% | trsv_only; line runs outside tubing string — replacement requires pulling tubing |
 | Injectivity / Flow Assurance | Flow assurance | 8 yr | 20 yr | Rigless (escalates) | 50% | injector_only |
 | P/T Gauge | Monitoring | 15 yr | 26 yr | Rigless | 90% | |
-| Fiber Optics | Monitoring | 12 yr | 26 yr | Rigless | 85% | |
+| Fiber Optics | Monitoring | 12 yr | 26 yr | Full workover | 85% | assumes permanent installation strapped to tubing string |
 | CO₂ Injection Flow Meter | Monitoring | 8 yr | 22 yr | Rigless | 70% | injector_only; MMV compliance |
 
 Safety barriers (TRSV, Cement, Casing, SSV, CIV, Tubing Hanger) carry longer MTTF values reflecting their role as the last line of defence — failures are rare, high-consequence events, not routine cost drivers. Detection probability is low for downhole safety barriers because defects (micro-annuli, casing corrosion) develop below the surface and are hard to identify without integrity testing programmes.
