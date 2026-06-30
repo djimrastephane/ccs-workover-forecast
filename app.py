@@ -308,6 +308,47 @@ with st.sidebar:
         help='Force a campaign if the oldest deferred item exceeds this age',
     )
 
+    st.markdown('<div class="sb-section">🔧 Fleet Equipment Coverage</div>', unsafe_allow_html=True)
+    with st.expander('Configure penetration rates', expanded=False):
+        st.caption(
+            'Set the fraction of wells that have each component installed. '
+            '100% = every well is equipped. Adjust for mixed-vintage fleets '
+            'or phased installation programmes.'
+        )
+        fiber_pct = st.slider(
+            'Fiber Optics (%)', 0, 100, 100, step=5,
+            help='Permanent DTS/DAS fiber. Set <100% for fleets where only some wells have continuous fiber monitoring.',
+        )
+        civ_pct = st.slider(
+            'Casing Isolation Valve (%)', 0, 100, 100, step=5,
+            help='CO₂-specific annular barrier valve. Set <100% if CIVs are fitted to new-build wells only.',
+        )
+        flowmeter_pct = st.slider(
+            'Injection Flowmeter (%)', 0, 100, 100, step=5,
+            help='Per-well CO₂ injection flow measurement. Set <100% for projects with shared / cluster metering.',
+        )
+        gauge_pct = st.slider(
+            'P/T Gauge (%)', 0, 100, 100, step=5,
+            help='Downhole pressure/temperature gauge. Most wells are equipped; set <100% for older legacy wells.',
+        )
+        n_fiber  = round(fiber_pct / 100 * n_injectors)
+        n_civ    = round(civ_pct / 100 * n_wells)
+        n_flow   = round(flowmeter_pct / 100 * n_injectors)
+        n_gauge  = round(gauge_pct / 100 * n_wells)
+        st.caption(
+            f'Fiber: {n_fiber}/{n_injectors} injectors · '
+            f'CIV: {n_civ}/{n_wells} wells · '
+            f'Flowmeter: {n_flow}/{n_injectors} injectors · '
+            f'Gauge: {n_gauge}/{n_wells} wells'
+        )
+
+    component_penetration_rates = {
+        'fiber_optics':       fiber_pct / 100,
+        'casing_valve':       civ_pct / 100,
+        'injection_flowmeter': flowmeter_pct / 100,
+        'gauge':              gauge_pct / 100,
+    }
+
     st.divider()
     run_btn = st.button('▶  Run Simulation', type='primary', use_container_width=True)
 
@@ -338,6 +379,7 @@ if run_btn:
             intervention_threshold=intervention_threshold,
             monitoring_program=monitoring_program,
             on_progress=_on_progress,
+            component_penetration_rates=component_penetration_rates,
         )
         _sim_status.update(label='Simulation complete', state='complete', expanded=False)
 
@@ -364,6 +406,7 @@ if run_btn:
         intervention_threshold=intervention_threshold,
         campaign_threshold=campaign_threshold, max_deferral_years=max_deferral_years,
         monitoring_program=monitoring_program,
+        component_penetration_rates=component_penetration_rates,
     )
     narrative = generate_executive_narrative(
         failure_df, annual_forecast, campaign_log, lifecycle_summary, params)

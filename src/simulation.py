@@ -26,6 +26,7 @@ def run_simulation(
     monitoring_program: str = 'standard',
     seed: int = 42,
     on_progress=None,
+    component_penetration_rates: dict | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """
     Orchestrate the full Monte Carlo simulation pipeline.
@@ -74,6 +75,13 @@ def run_simulation(
             component_assumptions['component'].map(mon_map)
             .fillna(component_assumptions['detection_prob'])
         )
+
+    # ── Apply fleet coverage overrides (penetration_rate per component) ─────────
+    if component_penetration_rates:
+        component_assumptions = component_assumptions.copy()
+        for comp, rate in component_penetration_rates.items():
+            mask = component_assumptions['component'] == comp
+            component_assumptions.loc[mask, 'penetration_rate'] = float(rate)
 
     # ── Build cost assumptions with CO₂ uplift and post-workover verification ─
     cost_scenario = 'offshore_high_cost' if scenario_id == 'offshore_high_cost' else 'base_case'
