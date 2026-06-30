@@ -568,6 +568,17 @@ def _render_overview():
             'Expected Campaigns', f'{p50_camps:.0f}',
             'P50 batch mobilisations over lifecycle', 'purple'), unsafe_allow_html=True)
 
+    if not failure_df.empty:
+        _n_comp      = failure_df['component'].nunique()
+        _comp_slots  = params['n_wells'] * _n_comp
+        _trig_rate   = p50_peak / max(_comp_slots, 1) * 100
+        st.caption(
+            f'**Peak Annual Demand** counts all component-level interventions fleet-wide '
+            f'in the worst single year — not individual well visits. '
+            f'{p50_peak:.0f} events ÷ ({params["n_wells"]} wells × {_n_comp} components) '
+            f'= **{_trig_rate:.1f}% of component-well slots** triggering in that year.'
+        )
+
     st.markdown('<div style="height:.6rem"></div>', unsafe_allow_html=True)
 
     # ── Row 2 KPI cards — Economics ──────────────────────────────────────────
