@@ -875,6 +875,65 @@ def _render_risk():
             f'**{_trigger_rate:.1f}%** of component-well slots triggering in a single year.'
         )
 
+        # Well-level drill-down: pick the representative simulation closest to P50
+        section('DEVELOPER — PEAK YEAR WELL-LEVEL BREAKDOWN')
+        st.caption(
+            f'One representative simulation (closest to P50). '
+            f'Shows which components failed on each well in Year {_p50_peak_year} '
+            f'and whether a rig was required. '
+            f'**Cost note:** each component is costed independently — '
+            f'no bundling discount when multiple components are fixed in one well visit.'
+        )
+
+        _p50_sim_id = int(
+            _peak_rows.loc[
+                (_peak_rows['n_events'] - _p50_peak_count).abs().idxmin(),
+                'simulation_id',
+            ]
+        )
+        _well_peak_df = failure_df[
+            (failure_df['simulation_id'] == _p50_sim_id) &
+            (failure_df['year'] == _p50_peak_year)
+        ]
+
+        if not _well_peak_df.empty:
+            _well_bkd = (
+                _well_peak_df
+                .groupby('well_id')
+                .agg(
+                    n_components   =('component',         'count'),
+                    components     =('display_name',      lambda x: ' · '.join(sorted(x))),
+                    rig_required   =('intervention_type', lambda x: 'full_workover' in x.values),
+                    est_cost       =('estimated_cost',    'sum'),
+                )
+                .reset_index()
+                .sort_values(['rig_required', 'n_components'], ascending=[False, False])
+                .reset_index(drop=True)
+            )
+            _well_bkd['rig_required'] = _well_bkd['rig_required'].map({True: 'Yes', False: 'No'})
+            _well_bkd['est_cost'] = (_well_bkd['est_cost'] / 1e6).round(2)
+            _well_bkd.columns = ['Well', '# Components', 'Failed Components', 'Rig Required?', 'Est. Cost ($M)']
+
+            _n_rig_wells = (_well_bkd['Rig Required?'] == 'Yes').sum()
+            _n_rigless_wells = (_well_bkd['Rig Required?'] == 'No').sum()
+            _k1, _k2, _k3 = st.columns(3)
+            with _k1:
+                st.metric('Wells Requiring Intervention', len(_well_bkd))
+            with _k2:
+                st.metric('Requiring Rig Workover', _n_rig_wells)
+            with _k3:
+                st.metric('Rigless / Light Only', _n_rigless_wells)
+
+            st.dataframe(
+                _well_bkd.style.apply(
+                    lambda row: ['background-color:#1f0000;color:#fca5a5'
+                                 if row['Rig Required?'] == 'Yes' else ''] * len(row),
+                    axis=1,
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
         section('DEVELOPER — SAMPLED MTTF DISTRIBUTION')
         st.caption(
             'Distribution of MTTF values drawn for each component across all simulations and wells. '

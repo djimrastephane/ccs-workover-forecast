@@ -92,6 +92,7 @@ def _process_simulation(
             for _, event in deferred_year.iterrows():
                 deferred_queue.append({
                     'fail_year': year,
+                    'well_id': event['well_id'],
                     'intervention_type': event['intervention_type'],
                     'cost': event['estimated_cost'],
                     'duration': event['estimated_duration_days'],
@@ -130,6 +131,7 @@ def _events_to_queue(year: int, events_df: pd.DataFrame) -> list[dict]:
     return [
         {
             'fail_year': year,
+            'well_id': ev['well_id'],
             'intervention_type': ev['intervention_type'],
             'cost': ev['estimated_cost'],
             'duration': ev['estimated_duration_days'],
@@ -139,10 +141,10 @@ def _events_to_queue(year: int, events_df: pd.DataFrame) -> list[dict]:
 
 
 def _batch_campaign(sim_id, counter, year, c_type, queue, mob_cost, defer_inj_cost):
-    rig_events = [e for e in queue if e['intervention_type'] == 'full_workover']
+    rig_events     = [e for e in queue if e['intervention_type'] == 'full_workover']
     rigless_events = [e for e in queue if e['intervention_type'] != 'full_workover']
 
-    total_dur = sum(e['duration'] for e in queue)
+    total_dur      = sum(e['duration'] for e in queue)
     total_int_cost = sum(e['cost'] for e in queue)
 
     mob = mob_cost if rig_events else 0.0
@@ -151,12 +153,17 @@ def _batch_campaign(sim_id, counter, year, c_type, queue, mob_cost, defer_inj_co
         for e in queue if e['intervention_type'] == 'full_workover'
     )
 
+    # n_wells = distinct wells in this campaign; n_events = total component interventions
+    # (a single well visit can address multiple components)
+    n_distinct_wells = len({e['well_id'] for e in queue})
+
     return {
         'simulation_id': sim_id,
         'campaign_id': f'SIM{sim_id}_C{counter:04d}',
         'campaign_year': year,
         'campaign_type': c_type,
-        'n_wells': len(queue),
+        'n_wells': n_distinct_wells,
+        'n_events': len(queue),
         'n_rig_workovers': len(rig_events),
         'n_rigless': len(rigless_events),
         'total_duration_days': total_dur,
