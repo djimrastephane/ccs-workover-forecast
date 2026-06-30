@@ -149,7 +149,7 @@ Fifteen components are modelled across four barrier classes, covering the taxono
 | Injection Packer | Production | 25 yr | 50 yr | Full workover | 35% | |
 | Wellhead | Production | 45 yr | 75 yr | Light | 60% | |
 | Tree | Production | 40 yr | 70 yr | Light | 55% | |
-| Hydraulic Control Line | Production | 10 yr | 25 yr | Rigless | 85% | trsv_only |
+| Hydraulic Control Line | Safety | 10 yr | 25 yr | Full workover | 85% | trsv_only; line runs outside tubing string — replacement requires pulling tubing |
 | Injectivity / Flow Assurance | Flow assurance | 8 yr | 20 yr | Rigless (escalates) | 50% | injector_only |
 | P/T Gauge | Monitoring | 15 yr | 26 yr | Rigless | 90% | |
 | Fiber Optics | Monitoring | 12 yr | 26 yr | Rigless | 85% | |
