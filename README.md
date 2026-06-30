@@ -69,20 +69,42 @@ ccs-workover-forecast/
 
 ## Simulation pipeline
 
-```
-Well population
-  → Per-well MTTF sampling    (triangular P10/P90 drawn independently per simulation × well)
-  → Bathtub curve             (infant 1.5× · useful life 1.0× · wear-out up to 1.8× linear)
-  → Bernoulli failure trials
-  → Detection probability     (tier-specific: minimal/standard/comprehensive from monitoring_config.csv)
-  → Detected failures         → planned preventive at 80% cost
-  → Threshold preventive events (cumulative P ≥ 90% → scheduled inspection)
-  → Barrier hierarchy         (safety reactive→immediate · preventive→deferrable · monitoring→deferrable)
-  → Campaign batching         (deferred queue + size/age triggers; immediate events grouped per year)
-  → Economics                 (per-event cost + mob overhead + deferred injection penalty)
-  → P10/P50/P90 outputs
-  → Model QA audit            (calibration score, uncertainty decomposition, sanity checks)
-  → Dashboard + CSV exports
+```mermaid
+%%{init: {'theme': 'neutral'}}%%
+flowchart TD
+    subgraph INPUTS["Inputs"]
+        F1["component_failure_assumptions.csv\nP10/P90 MTTF · detection_prob · barrier class"]
+        F2["monitoring_config.csv\ndetection_prob per monitoring tier"]
+        F3["cost_assumptions.csv\nrig · workover · CO2 uplift · deferred injection"]
+        F4["scenario_config.csv\nfailure/cost multipliers · SCSSV flag"]
+        UP(["User Parameters\nn_simulations · n_wells · operating_years\nscenario · monitoring_program · seed"])
+    end
+
+    S1["Stage 1 · Config Assembly\nApply scenario multipliers to costs\nOverride detection_prob by monitoring tier\nExtract CO2 uplift + post-workover verification cost"]
+
+    S2["Stage 2 · Failure Generation  failure_generator.py\nSample MTTF per sim x well from Triangular P10/P90\nAnnual prob x bathtub-curve x scenario multiplier\nBernoulli trials: n_sims x n_wells x n_years\nDetected reactive → preventive at 80% cost\nThreshold-triggered preventive when cumulative P ≥ 90%"]
+
+    S3["Stage 3 · Intervention Decisions  intervention_engine.py\nSafety reactive failures → immediate response\nInjectivity repeat on same well → full workover\n2+ medium/high failures in 3-yr window → escalate well"]
+
+    S4["Stage 4 · Campaign Scheduling  campaign_scheduler.py\nImmediate → emergency/urgent campaign that year\nDeferred queue → batch on size or max-age trigger\nRig mobilisation charged once per rig campaign"]
+
+    S5["Stage 5 · Economics  economics.py\nSum costs per simulation x year\nAdd mobilisation + deferred injection penalty\nCompute P10 / P50 / P90 lifecycle statistics"]
+
+    subgraph OUTPUTS["Outputs returned by run_simulation()"]
+        O1["failure_df\nevent log — one row per sim x well x component x year"]
+        O2["campaign_log\none row per campaign"]
+        O3["annual_costs\none row per simulation x year"]
+        O4["lifecycle_summary\nP10/P50/P90 cost · workovers · interventions"]
+    end
+
+    APP["Streamlit App — reporting.py · plotting.py\nAnnual Forecast · Cost Waterfall · Component Risk\nAsset Health · Heatmap · Model QA · CSV exports"]
+
+    INPUTS --> S1 --> S2 --> S3 --> S4 --> S5
+    S3 -.->|failure_df| O1
+    S4 -.->|campaign_log| O2
+    S5 -.->|annual_costs| O3
+    S5 -.->|lifecycle_summary| O4
+    O1 & O2 & O3 & O4 --> APP
 ```
 
 ---
