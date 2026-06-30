@@ -1193,6 +1193,14 @@ with tabs[7]:
     st.dataframe(load_intervention_rules(), use_container_width=True)
 
     section('COST ASSUMPTIONS — ACTIVE SCENARIO')
+    st.warning(
+        '**Illustrative values only.** The figures below are North Sea analogues used as starting '
+        'points. Rig day-rates, workover costs, and deferred injection penalties vary significantly '
+        'by geography, water depth, rig type, and operator contract. '
+        'Edit `data/assumptions/cost_assumptions.csv` with your project-specific costs before '
+        'using any outputs for commercial or investment decisions.',
+        icon='⚠️',
+    )
     cost_scen = 'offshore_high_cost' if params['scenario_id'] == 'offshore_high_cost' else 'base_case'
     costs_df  = pd.DataFrame(
         list(load_cost_assumptions(cost_scen).items()), columns=['Cost Item', 'Value (USD)']

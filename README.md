@@ -215,15 +215,17 @@ A user-controlled threshold (70–95%, default 90%) triggers planned interventio
 
 ### Cost assumptions
 
+> **These figures are illustrative North Sea analogues and must be replaced with project-specific costs before using outputs for any commercial or investment decision.** Rig day-rates, workover costs, and deferred injection penalties vary significantly by geography, water depth, rig type, and operator contract. Edit `data/assumptions/cost_assumptions.csv` to reflect your project.
+
 `cost_assumptions.csv` — costs by scenario (`base_case`, `offshore_high_cost`).
 
-| Cost item | Base case | Notes |
+| Cost item | Base case (illustrative) | Notes |
 |---|---|---|
-| Rig mobilisation | $2,000,000 / campaign | |
-| Full workover | $2,500,000 / well | Before CO₂ uplift |
-| Light intervention | $500,000 / well | Before CO₂ uplift |
-| Rigless intervention | $200,000 / event | Before CO₂ uplift |
-| Deferred injection cost | $50,000 / day / well | |
+| Rig mobilisation | $2,000,000 / campaign | North Sea analogue — replace with project rig spread rate |
+| Full workover | $2,500,000 / well | Before CO₂ uplift — covers tubing pull, re-completion |
+| Light intervention | $500,000 / well | Before CO₂ uplift — wellhead / tree work, no tubing pull |
+| Rigless intervention | $200,000 / event | Before CO₂ uplift — wireline or coiled tubing only |
+| Deferred injection cost | $50,000 / day / well | Carbon credit proxy — high uncertainty, do not use for investment decisions |
 | Post-workover verification | $200,000 / full workover | CBL + casing inspection + pressure test |
 | CO₂ handling uplift factor | 1.15× | Applied to all per-event intervention costs |
 
