@@ -1,6 +1,10 @@
 import pandas as pd
 import numpy as np
 
+# Intervention types that require rig mobilisation (workover or light well intervention vessel).
+# Rigless interventions (wireline, coiled tubing, pumping) are excluded from rig-demand metrics.
+_RIG_TYPES = {'full_workover', 'light_intervention'}
+
 
 def compute_annual_economics(
     failure_df: pd.DataFrame,
@@ -53,10 +57,11 @@ def compute_annual_economics(
         + annual['deferred_injection_cost']
     )
 
-    # Count distinct wells requiring any intervention per (simulation_id, year)
-    if not failure_df.empty and 'intervention_required' in failure_df.columns:
+    # Count distinct wells requiring rig mobilisation per (simulation_id, year).
+    # Filters to full_workover + light_intervention only; rigless visits excluded.
+    if not failure_df.empty and 'intervention_type' in failure_df.columns:
         well_counts = (
-            failure_df[failure_df['intervention_required']]
+            failure_df[failure_df['intervention_type'].isin(_RIG_TYPES)]
             .groupby(['simulation_id', 'year'])['well_id']
             .nunique()
             .reset_index()
@@ -111,13 +116,15 @@ def compute_lifecycle_summary(
                 peak_demand.quantile(pct) if len(peak_demand) else 0
             )
 
-        # Peak annual wells (distinct wells with any intervention in worst year)
-        int_mask = failure_df['intervention_required'] if 'intervention_required' in failure_df.columns \
-            else pd.Series(True, index=failure_df.index)
+        # Rig-requiring wells per year (full_workover + light_intervention only).
+        # Used for rig-count planning; rigless interventions excluded.
+        if 'intervention_type' in failure_df.columns:
+            rig_df = failure_df[failure_df['intervention_type'].isin(_RIG_TYPES)]
+        else:
+            rig_df = failure_df[failure_df.get('intervention_required', False)]
+
         annual_wells = (
-            failure_df[int_mask]
-            .groupby(['simulation_id', 'year'])['well_id']
-            .nunique()
+            rig_df.groupby(['simulation_id', 'year'])['well_id'].nunique()
         )
         peak_wells = annual_wells.groupby('simulation_id').max()
         for pct, label in [(0.50, 'p50'), (0.90, 'p90')]:
@@ -125,7 +132,7 @@ def compute_lifecycle_summary(
                 peak_wells.quantile(pct) if len(peak_wells) else 0
             )
 
-        # Total well-visits (distinct well-year pairs, summed over lifecycle)
+        # Total rig visits (distinct rig-requiring well-year pairs, summed over lifecycle)
         total_well_visits = annual_wells.groupby('simulation_id').sum()
         for pct, label in [(0.10, 'p10'), (0.50, 'p50'), (0.90, 'p90')]:
             summary[f'{label}_well_visits'] = (

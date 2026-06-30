@@ -626,35 +626,36 @@ def _render_overview():
 
     with c1:
         st.markdown(kpi_card(
-            'P50 Well Visits', f'{p50_visits:.0f}',
-            'Distinct well-year interventions over field life', 'blue'), unsafe_allow_html=True)
+            'P50 Rig Visits', f'{p50_visits:.0f}',
+            'Full workover + light intervention well-year pairs over field life', 'blue'),
+            unsafe_allow_html=True)
     with c2:
         st.markdown(kpi_card(
-            'P90 Well Visits', f'{ls.get("p90_well_visits", 0):.0f}',
+            'P90 Rig Visits', f'{ls.get("p90_well_visits", 0):.0f}',
             f'High-exposure scenario (+{(ls.get("p90_well_visits",0)/max(p50_visits,1)-1)*100:.0f}% vs P50)',
             wo_risk), unsafe_allow_html=True)
     with c3:
         st.markdown(kpi_card(
             'P50 Peak Wells / Year', f'{p50_peak_well:.0f} wells/yr',
-            'Max distinct wells needing intervention in any single year', peak_risk),
+            'Max distinct wells needing rig in any single year', peak_risk),
             unsafe_allow_html=True)
     with c4:
         st.markdown(kpi_card(
             'Expected Campaigns', f'{p50_camps:.0f}',
             'P50 batch mobilisations over lifecycle', 'purple'), unsafe_allow_html=True)
 
-    if not failure_df.empty:
-        _int_df  = failure_df[failure_df.get('intervention_required', True)] \
-                   if 'intervention_required' in failure_df.columns else failure_df
-        _ann_w   = _int_df.groupby(['simulation_id', 'year'])['well_id'].nunique().reset_index(name='_nw')
+    if not failure_df.empty and 'intervention_type' in failure_df.columns:
+        _rig_df  = failure_df[failure_df['intervention_type'].isin({'full_workover', 'light_intervention'})]
+        _ann_w   = _rig_df.groupby(['simulation_id', 'year'])['well_id'].nunique().reset_index(name='_nw')
         _pk_rows = _ann_w.loc[_ann_w.groupby('simulation_id')['_nw'].idxmax()]
         _p50_pk_yr  = int(_pk_rows['year'].median())
         _wells_hit  = _pk_rows['_nw'].median()
         _avg_comp   = p50_peak_comp / max(_wells_hit, 1)
         st.caption(
-            f'**{_wells_hit:.0f} wells** require intervention in Year {_p50_pk_yr} (worst year) — '
+            f'**{_wells_hit:.0f} wells** require rig mobilisation in Year {_p50_pk_yr} (worst year) — '
             f'avg {_avg_comp:.1f} component failures per well. '
-            f'Multiple failures on the same well are addressed in a single visit.'
+            f'Multiple failures on the same well are addressed in a single rig visit. '
+            f'Rigless interventions (wireline/CT) are tracked separately.'
         )
 
     st.markdown('<div style="height:.6rem"></div>', unsafe_allow_html=True)
@@ -1129,10 +1130,13 @@ def _render_campaigns():
 
         # ── Well-level demand & failure-mode grouping ─────────────────────────
         section('WELL-LEVEL DEMAND & FAILURE MODE GROUPING')
-        if not failure_df.empty and 'intervention_required' in failure_df.columns:
-            _int = failure_df[failure_df['intervention_required']].copy()
+        if not failure_df.empty and 'intervention_type' in failure_df.columns:
+            # Rig-requiring only: full workover + light intervention (excludes wireline/CT rigless)
+            _int = failure_df[failure_df['intervention_type'].isin(
+                {'full_workover', 'light_intervention'}
+            )].copy()
 
-            # P50 wells per year (for fan chart)
+            # P50 wells per year needing rig (for fan chart)
             _wpy = (
                 _int.groupby(['simulation_id', 'year'])['well_id']
                 .nunique()
@@ -1177,14 +1181,16 @@ def _render_campaigns():
                     line=dict(color='#ef4444', width=2), name='P50 — Most Likely',
                 ))
                 fig_wpy.update_layout(
-                    title='Wells Requiring Intervention per Year — P10/P50/P90',
+                    title='Wells Needing Rig per Year — P10/P50/P90',
                     xaxis_title='Year', yaxis_title='Distinct Wells',
                     template='plotly_dark', height=350, legend=dict(orientation='h'),
                 )
                 st.plotly_chart(fig_wpy, use_container_width=True, key='cp_wells_per_year')
                 st.caption(
-                    'Each well counts once per year regardless of how many components fail. '
-                    'P50 peak = minimum rig capacity required in the worst year.'
+                    'Full workover + light intervention only. Each well counts once per year '
+                    'regardless of how many components fail. '
+                    'P50 peak = minimum rig capacity required in the worst year. '
+                    'Rigless interventions (wireline, coiled tubing) are excluded.'
                 )
 
             with col_wl2:
@@ -1200,9 +1206,9 @@ def _render_campaigns():
                 fig_comp.update_layout(legend=dict(orientation='h', y=-0.3))
                 st.plotly_chart(fig_comp, use_container_width=True, key='cp_comp_grouping')
                 st.caption(
-                    'Wells with the same failure mode in the same year are candidates for a '
-                    'shared campaign. A well with multiple failure types appears in multiple '
-                    'stacks but requires only one rig visit.'
+                    'Rig-requiring interventions only. Wells with the same failure mode in the '
+                    'same year are candidates for a shared campaign. A well with multiple '
+                    'failure types appears in multiple stacks but requires only one rig visit.'
                 )
 
         # ── Developer additions ───────────────────────────────────────────────
