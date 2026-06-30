@@ -569,14 +569,17 @@ def _render_overview():
             'P50 batch mobilisations over lifecycle', 'purple'), unsafe_allow_html=True)
 
     if not failure_df.empty:
-        _n_comp      = failure_df['component'].nunique()
-        _comp_slots  = params['n_wells'] * _n_comp
-        _trig_rate   = p50_peak / max(_comp_slots, 1) * 100
+        _ann_d   = failure_df.groupby(['simulation_id', 'year']).size().reset_index(name='_n')
+        _pk_rows = _ann_d.loc[_ann_d.groupby('simulation_id')['_n'].idxmax()]
+        _p50_pk_yr  = int(_pk_rows['year'].median())
+        _peak_yr_df = failure_df[failure_df['year'] == _p50_pk_yr]
+        _wells_hit  = _peak_yr_df.groupby('simulation_id')['well_id'].nunique().median()
+        _avg_comp   = p50_peak / max(_wells_hit, 1)
         st.caption(
-            f'**Peak Annual Demand** counts all component-level interventions fleet-wide '
-            f'in the worst single year — not individual well visits. '
-            f'{p50_peak:.0f} events ÷ ({params["n_wells"]} wells × {_n_comp} components) '
-            f'= **{_trig_rate:.1f}% of component-well slots** triggering in that year.'
+            f'**{p50_peak:.0f} component events** in Year {_p50_pk_yr} (worst year) across '
+            f'**{_wells_hit:.0f} wells** — avg {_avg_comp:.1f} components per well. '
+            f'Multiple components can fail on the same well in the same year; '
+            f'a single well visit can address all of them.'
         )
 
     st.markdown('<div style="height:.6rem"></div>', unsafe_allow_html=True)
