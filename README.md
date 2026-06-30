@@ -40,7 +40,7 @@ Then open http://localhost:8501 in your browser.
 
 ```
 ccs-workover-forecast/
-├── app.py                          # Streamlit dashboard (8 tabs)
+├── app.py                          # Streamlit dashboard (9 tabs)
 ├── requirements.txt
 ├── data/
 │   ├── assumptions/
@@ -49,6 +49,9 @@ ccs-workover-forecast/
 │   │   ├── assumption_quality.csv              # Source quality, confidence, sensitivity register
 │   │   ├── cost_assumptions.csv                # Per-event costs, CO₂ uplift factor, post-workover verification
 │   │   └── scenario_config.csv
+│   ├── observations/
+│   │   └── observed_events.csv                 # Real field failure/degradation events for calibration
+│   ├── calibration/                            # Auto-generated per-field calibration factor exports
 │   └── outputs/                    # Downloaded CSVs land here
 └── src/
     ├── config_loader.py            # Loads CSV assumptions
@@ -56,8 +59,10 @@ ccs-workover-forecast/
     ├── failure_generator.py        # Vectorised failure + detection + preventive event generation
     ├── intervention_engine.py      # Barrier hierarchy and escalation rules
     ├── campaign_scheduler.py       # Deferred queue batching; immediate event grouping
+    ├── bundling.py                 # Co-location discount — secondary components pay discounted cost when multiple fail same well/year
     ├── economics.py                # Cost aggregation and P10/P50/P90 summary
     ├── simulation.py               # Monte Carlo orchestration
+    ├── field_calibration.py        # Observed vs expected failure rate comparison; MTTF calibration; maturity score; drift detection
     ├── reporting.py                # Aggregation, health index, heatmap data, narratives
     ├── plotting.py                 # Plotly chart functions
     ├── calibration.py              # Calibration score and uncertainty decomposition
@@ -231,9 +236,45 @@ A user-controlled threshold (70–95%, default 90%) triggers planned interventio
 
 **CO₂ handling uplift** (1.15× base, 1.20× offshore): covers CO₂-rated BOP equipment and special procedures — per NZTC/DNV CCS Wells Technology Roadmap §4.2.1. Applied multiplicatively to rigless, light, and full workover costs before the scenario cost multiplier.
 
+**Co-location bundling discount** (default 25%): when multiple components fail on the same well in the same simulation year, the most expensive component pays the full standalone cost; each additional component pays `discount_factor × standalone_cost`. Reflects shared rig mobilisation, shared BOP rigging, and parallel workover efficiency. The discount applies only to `estimated_cost` — it does not affect workover or event counts. Configurable via sidebar slider (0–60%).
+
 **Post-workover verification**: mandatory CBL + casing inspection + pressure test required before CO₂ re-injection clearance after any full rig workover. Added as a fixed adder on top of the full workover cost (after CO₂ uplift).
 
 The deferred injection penalty applies to rig workovers sitting in the deferred queue. Cost = (days waiting) × (daily rate) × (deferred rig jobs), summed per well.
+
+### Field calibration
+
+As CCS fields accumulate operational history, observed failure rates should replace literature-derived MTTF assumptions. The calibration engine in `src/field_calibration.py` does this automatically.
+
+**How it works:**
+
+```
+Observed failure rate   = observed_failures / total_well_years
+Expected failure rate   = 1 − exp(−1 / mode_MTTF)
+Calibration factor      = observed_rate / expected_rate
+Confidence              = min(n_observed / 20, 1.0)
+Effective factor        = 1 + confidence × (calibration_factor − 1)
+Calibrated MTTF         = base_MTTF / effective_factor
+```
+
+The confidence weighting prevents a single observed event from rewriting assumptions — at 1 event the effective factor shifts only 5% of the way toward the calibration factor; at 20+ events it fully converges.
+
+**To add your field data**, append rows to `data/observations/observed_events.csv`:
+
+| Column | Description |
+|---|---|
+| `field_id` | Field identifier (e.g. `FIELD_A`) |
+| `well_id` | Well identifier |
+| `component` | Must match a component in `component_failure_assumptions.csv` |
+| `install_year` | Year the component was installed |
+| `event_year` | Year of failure / degradation |
+| `event_type` | `failure` or `degradation` (counted for calibration); `inspection` or `maintenance` (informational only) |
+
+Then select the field in the sidebar **Reference Field** selector. The model automatically applies calibrated MTTF values before running the simulation.
+
+**Reliability Maturity Score (0–100):** displayed in the Field Calibration tab. Combines years of operational history (30%), observed event count (30%), component coverage (20%), and mean calibration confidence (20%). Levels: Concept study → Pre-FEED → FEED → Early operations → Mature field.
+
+**Drift alerts** fire when a component's calibration factor exceeds 1.5× (model is optimistic) or falls below 0.5× (model is conservative), with a minimum 10% confidence threshold to suppress noise from single events.
 
 ### Scenario configuration
 
@@ -252,16 +293,19 @@ The deferred injection penalty applies to rig workovers sitting in the deferred 
 
 ## Dashboard tabs
 
-| Tab | Contents |
-|---|---|
-| Executive Summary | KPI cards (P50/P90 workovers, lifecycle cost, peak demand, threshold split), asset health index, KPI traceability expanders, executive narrative |
-| Lifecycle Forecast | Annual P10/P50/P90 workover fan chart, bathtub curve with phase annotations, cost fan chart |
-| Risk & Failure Modes | 5×5 risk matrix, component lifecycle failure probability heatmap, cost contribution breakdown, risk traceability |
-| Campaign Planning | Bubble Gantt across sample simulations, deferred queue evolution, immediate vs deferred split |
-| Economics | Waterfall cost breakdown, lifecycle cost distribution, cost by component, cost traceability |
-| Scenario Comparison | Side-by-side comparison of multiple scenario runs |
-| Model QA | Calibration score, assumption quality register, critical calibration gaps, MTTF uncertainty tornado, validation metrics, sanity checks, campaign type breakdown |
-| Assumptions | Live view of all CSV assumption tables with quality register and engineering defensibility panel |
+| Tab | Contents | View modes |
+|---|---|---|
+| Executive Summary | KPI cards (P50/P90 workovers, lifecycle cost, peak demand, threshold split), asset health index, KPI traceability expanders, executive narrative | All |
+| Lifecycle Forecast | Annual P10/P50/P90 workover fan chart, bathtub curve with phase annotations, cost fan chart | Engineering, Developer |
+| Risk & Failure Modes | 5×5 risk matrix, component lifecycle failure probability heatmap, cost contribution breakdown, risk traceability | Engineering, Developer |
+| Campaign Planning | Bubble Gantt across sample simulations, deferred queue evolution, immediate vs deferred split | Engineering, Developer |
+| Economics | Waterfall cost breakdown, lifecycle cost distribution, cost by component, cost traceability | Engineering, Developer |
+| Scenario Comparison | Side-by-side comparison of multiple scenario runs | Engineering, Developer |
+| Field Calibration | Reliability maturity score; per-component calibration factors (observed vs expected rate); drift alerts; recommended MTTF updates; observed event log; OREDA HC-service limitation workflow | Engineering, Developer |
+| Model QA | Calibration score, assumption quality register, critical calibration gaps, MTTF uncertainty tornado, validation metrics, sanity checks, campaign type breakdown | Engineering, Developer |
+| Assumptions | Live view of all CSV assumption tables with quality register and engineering defensibility panel | Engineering, Developer |
+
+The view mode selector (Executive / Engineering / Developer) in the sidebar controls tab visibility. Executive shows Overview only. Developer adds the peak intervention calendar year narrative and additional diagnostic detail.
 
 ---
 
@@ -324,7 +368,7 @@ The global random seed (default 42) is set once in `run_simulation()`. The same 
 3. **Single deferred injection rate** — all deferred rig workovers are penalised at the same daily rate regardless of well productivity.
 4. **No spatial or cluster logic** — all wells are treated as independent. Geographic clustering of campaigns is not modelled.
 5. **Exponential (memoryless) failure model within phases** — the bathtub curve captures phase-level hazard change but the exponential model within each phase has no memory. Weibull shape parameter is not yet implemented.
-6. **Low calibration score (41/100)** — several high-sensitivity parameters (cement P90 MTTF, packer P90 MTTF, injectivity P90 MTTF, intervention threshold) rely on expert judgement or synthetic assumptions with no direct CCS field data. Outputs should be treated as order-of-magnitude planning estimates, not engineering commitments. The Model QA tab shows the full breakdown.
+6. **Low calibration score (~38/100)** — several high-sensitivity parameters (cement P90 MTTF, packer P90 MTTF, injectivity P90 MTTF, intervention threshold) rely on expert judgement or synthetic assumptions with no direct CCS field data. OREDA-based MTTF values cover hydrocarbon service — no equivalent reliability database exists for CO2 injection wells. API 6A, API 14A, and NORSOK D-010 are design qualification standards, not operational failure rate databases. Outputs should be treated as order-of-magnitude planning estimates, not engineering commitments. The Model QA tab shows the full breakdown; the Field Calibration tab shows how observed field data progressively replaces literature assumptions.
 7. **Joule-Thomson cooling not explicitly modelled** — CO₂ depressurisation during well control events can cool valves to −78 °C (confirmed by the NZTC SSSV JIP tests down to −78.5 °C). This extreme thermal shock is a CCS-specific failure driver for TRSV, SSV, and packers; it is currently absorbed into the conservative MTTF assumptions rather than modelled as a distinct mechanism.
 8. **Thermal/pressure cycling degradation not captured** — cyclical CO₂ injection (on-off supply, workovers, ship unloading intervals) causes progressive cement debonding, casing fatigue, and elastomer creep beyond what the bathtub wear-out ramp captures. IEAGHG 2018-08 (§2.1.8, Torsaeter 2018) documents an average of ~2 years for integrity problems to emerge when wells are operated outside their initial design envelope — consistent with the infant mortality window (years 1–2, 1.5× bathtub multiplier) but with long-term cyclic accumulation not explicitly captured. A future cyclic-fatigue degradation model would improve late-life cement and packer accuracy.
 9. **Legacy well conversion risk not fully captured** — the PMC10407664 JPN-1 case study (Indonesia) found that a 10-year-idle well required mandatory re-completion even after a full workover: corrosion rate exceeded 2 mm/yr, existing casing was incompatible with CO₂, and acoustic CBL tools failed to detect the micro-annulus (temperature logging found 2 leaks at 440 m and 881 m that CBL missed). The **Legacy Well Conversion** scenario (2.5× failure multiplier, 1.4× cost multiplier, SCSSV disabled) approximates this risk profile; however, idle-period degradation and material incompatibility are absorbed into the MTTF distribution rather than modelled mechanistically. Counter-evidence from Wabamun Lake, Alberta (Nygaard et al. 2014, via IEAGHG 2018-08 §5.1): of 1,000 wells penetrating the caprock, 95 required detailed study, but only 4 of 27 closely examined wells ultimately required workover — suggesting that not all legacy wells need intervention; the 2.5× multiplier captures the worst-case inadequately-assessed-history population, not the broader legacy well universe.
@@ -335,7 +379,7 @@ The global random seed (default 42) is set once in `run_simulation()`. The same 
 2. Add a rig fleet capacity constraint to cap simultaneous campaigns.
 3. Add per-well repair history to adjust future MTTF based on cumulative failure count.
 4. Enable CSV upload in the Assumptions tab for project-specific calibration without file editing.
-5. Field-calibrate the high-sensitivity parameters (cement MTTF, packer MTTF, intervention threshold) using CCS pilot data as it becomes available.
+5. Expand `observed_events.csv` with additional CCS field data as it becomes available — the field calibration engine will automatically update MTTF assumptions as confidence grows.
 6. Add a legacy-well module to model remediation campaigns for pre-existing O&G wellbores within the storage licence area.
 7. Implement a cyclic-fatigue multiplier on cement and elastomeric seals to reflect injection pressure cycling over multi-decade operation.
 
