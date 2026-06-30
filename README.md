@@ -158,14 +158,14 @@ Fifteen components are modelled across four barrier classes, covering the taxono
 
 | Component | Barrier class | P10 MTTF | P90 MTTF | Intervention type | Detection prob (standard tier) | Notes |
 |---|---|---|---|---|---|---|
-| TRSV / SCSSV | Safety | 40 yr | 90 yr | Rigless | 70% | trsv_only; assumes wireline-retrievable (WRTRSV) design |
-| Cement Barrier | Safety | 50 yr | 120 yr | Full workover | 25% | |
+| TRSV / SCSSV | Safety | 30 yr | 65 yr | Rigless | 70% | trsv_only; assumes wireline-retrievable (WRTRSV) design; SPE-232388-MS Table 1 |
+| Cement Barrier | Safety | 50 yr | 70 yr | Full workover | 25% | Michigan 70yr field evidence (IEAGHG 2018-08) is the longest available empirical upper bound |
 | Casing | Safety | 60 yr | 150 yr | Full workover | 30% | |
 | Surface Safety Valve | Safety | 15 yr | 40 yr | Rigless | 80% | |
 | Casing Isolation Valve | Safety | 20 yr | 55 yr | Light | 55% | CCS-specific barrier |
 | Tubing Hanger Seal | Safety | 30 yr | 70 yr | Full workover | 50% | primary metal-to-metal seal failure requires pulling tubing |
 | Tubing String | Production | 35 yr | 55 yr | Full workover | 40% | |
-| Injection Packer | Production | 25 yr | 50 yr | Full workover | 35% | |
+| Injection Packer | Production | 22 yr | 38 yr | Full workover | 35% | SPE-232388-MS Table 1 |
 | Wellhead | Production | 45 yr | 75 yr | Light | 60% | |
 | Tree | Production | 40 yr | 70 yr | Light | 55% | |
 | Hydraulic Control Line | Safety | 10 yr | 25 yr | Full workover | 85% | trsv_only; line runs outside tubing string — replacement requires pulling tubing |
@@ -363,6 +363,8 @@ The global random seed (default 42) is set once in `run_simulation()`. The same 
 
 ## Known limitations
 
+> **Data maturity notice**: CCS well integrity is a relatively new discipline. As of 2026 the global CCS injection fleet numbers fewer than 50 commercial-scale wells, with CO₂ injection history spanning at most ~30 years (Sleipner, 1996). No CCS-specific equivalent of OREDA exists. No publicly available CCS-only MTTF database has been published. All component MTTF values in this model are derived from hydrocarbon-service analogues (OREDA, Peloton WellMaster, SPE papers on acid gas injection) adjusted by expert judgement or drawn from pilot-scale operational experience. They are structured working estimates, not validated engineering data, and should be progressively replaced by field observations as CCS operations mature. The calibration score of ~38/100 (Pre-FEED) in the Model QA tab accurately reflects this state of knowledge.
+
 1. **No component renewal after repair** — a repaired component restarts with the same MTTF distribution as a new one (repair-to-as-new). A repair-to-as-old distinction would improve late-life accuracy.
 2. **No rig availability constraint** — the scheduler does not cap simultaneous campaigns by rig count or vessel availability.
 3. **Single deferred injection rate** — all deferred rig workovers are penalised at the same daily rate regardless of well productivity.
@@ -399,3 +401,4 @@ The global random seed (default 42) is set once in `run_simulation()`. The same 
 | NORSOK D-010 | Well integrity in drilling and well operations; used to guide CCS well construction and MTTF analogues |
 | DNV-RP-J203 | Geological storage of CO₂ — recommended practices for MMV and well assessment |
 | [IEAGHG Technical Report 2018-08 — Well Engineering and Injection Regularity in CO₂ Storage Wells](https://ieaghg.org/publications/2018-08%20Well%20Engineering%20and%20Injection%20Regularity%20in%20CO2%20Storage%20Wells.pdf) | Well engineering best practices for CO₂ EOR and storage wells; covers corrosion risk under dry vs wet CO₂ conditions, long-term cement integrity field evidence (SACROC, Michigan), halite precipitation as the dominant injectivity failure mechanism (Sleipner), tubular service life expectations, mandatory integrity testing requirements after workovers, and operational experience from CO₂ EOR and storage projects; informs tubular MTTF assumptions, post-workover verification cost, injectivity failure mode, and the CO₂ handling uplift factor |
+| Hardiman et al. 2023 — *Deep Geological Storage of CO₂ on the UK Continental Shelf: Containment Certainty — Supplementary Note C: Well Analysis Using Peloton WellMaster Database* (WSP / Crondall Energy / GeoEnergy Durham for NSTA, February 2023) | Component-level failure rates from Peloton WellMaster (38yr dataset; 6,000 wells; 70,000 components; 45,000 service-years; 34 operators) filtered for post-1996 UK and Norwegian injectors: SCSSV AFR=0.009/yr (MTTF≈111yr; 3,549 svc-yr); injection packer AFR=0.002/yr (MTTF≈500yr; 15,263 svc-yr); tubing AFR=0.004/yr per 1,000 m; subsea XmasTree AFR=0.007/yr; subsea tubing hanger and wellhead: 0 failures across >5,000 and >13,000 svc-yr respectively; simulated CO₂ injector well leak risk: 0.0020/yr (1 in 500). Note: WellMaster is a HC-service database — CO₂ elastomer and corrosion effects are not separately modelled, introducing an optimistic bias for CO₂-specific failure modes such as elastomer degradation in packers and TRSVs |
