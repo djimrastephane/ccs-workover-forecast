@@ -5,7 +5,7 @@ import numpy as np
 def compute_annual_economics(
     failure_df: pd.DataFrame,
     campaign_log: pd.DataFrame,
-    operating_years: int,
+    operating_years: int,  # noqa: ARG001 — kept for API stability
 ) -> pd.DataFrame:
     """
     Compute annual cost breakdown across all simulations.
@@ -53,6 +53,20 @@ def compute_annual_economics(
         + annual['deferred_injection_cost']
     )
 
+    # Count distinct wells requiring any intervention per (simulation_id, year)
+    if not failure_df.empty and 'intervention_required' in failure_df.columns:
+        well_counts = (
+            failure_df[failure_df['intervention_required']]
+            .groupby(['simulation_id', 'year'])['well_id']
+            .nunique()
+            .reset_index()
+            .rename(columns={'well_id': 'n_wells_affected'})
+        )
+        annual = annual.merge(well_counts, on=['simulation_id', 'year'], how='left')
+        annual['n_wells_affected'] = annual['n_wells_affected'].fillna(0).astype(int)
+    else:
+        annual['n_wells_affected'] = 0
+
     return annual
 
 
@@ -89,12 +103,33 @@ def compute_lifecycle_summary(
                 all_interventions.quantile(pct) if len(all_interventions) else 0
             )
 
-        # Peak annual demand
+        # Peak annual component demand
         annual_demand = failure_df.groupby(['simulation_id', 'year']).size()
         peak_demand = annual_demand.groupby('simulation_id').max()
         for pct, label in [(0.50, 'p50'), (0.90, 'p90')]:
             summary[f'{label}_peak_annual_demand'] = (
                 peak_demand.quantile(pct) if len(peak_demand) else 0
+            )
+
+        # Peak annual wells (distinct wells with any intervention in worst year)
+        int_mask = failure_df['intervention_required'] if 'intervention_required' in failure_df.columns \
+            else pd.Series(True, index=failure_df.index)
+        annual_wells = (
+            failure_df[int_mask]
+            .groupby(['simulation_id', 'year'])['well_id']
+            .nunique()
+        )
+        peak_wells = annual_wells.groupby('simulation_id').max()
+        for pct, label in [(0.50, 'p50'), (0.90, 'p90')]:
+            summary[f'{label}_peak_annual_wells'] = (
+                peak_wells.quantile(pct) if len(peak_wells) else 0
+            )
+
+        # Total well-visits (distinct well-year pairs, summed over lifecycle)
+        total_well_visits = annual_wells.groupby('simulation_id').sum()
+        for pct, label in [(0.10, 'p10'), (0.50, 'p50'), (0.90, 'p90')]:
+            summary[f'{label}_well_visits'] = (
+                total_well_visits.quantile(pct) if len(total_well_visits) else 0
             )
 
     if not campaign_log.empty:
