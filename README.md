@@ -249,13 +249,21 @@ As CCS fields accumulate operational history, observed failure rates should repl
 **How it works:**
 
 ```
-Observed failure rate   = observed_failures / total_well_years
-Expected failure rate   = 1 − exp(−1 / mode_MTTF)
-Calibration factor      = observed_rate / expected_rate
-Confidence              = min(n_observed / 20, 1.0)
-Effective factor        = 1 + confidence × (calibration_factor − 1)
-Calibrated MTTF         = base_MTTF / effective_factor
+Expected failures  = Σ base_rate × bathtub_mult(t)   [summed over all observed well-years]
+Calibration factor = observed_failures / expected_failures
+Confidence         = min(n_observed / 20, 1.0)
+Effective factor   = 1 + confidence × (calibration_factor − 1)
+Calibrated MTTF    = base_MTTF / effective_factor
 ```
+
+where `base_rate = 1 − exp(−1 / mode_MTTF)` and `bathtub_mult(t)` is the lifecycle phase
+multiplier for year *t* (1.5× infant mortality years 1–2; 1.0× useful life; ramping to 1.8×
+wear-out over the final 30% of design life).
+
+Bathtub weighting ensures the expected count reflects the actual lifecycle phase mix of
+the observation window. Without it, an observation window dominated by early-life years would
+inflate the calibration factor — falsely attributing normal infant-mortality failures to MTTF
+underestimation, causing double-counting when the simulation applies the same multiplier.
 
 The confidence weighting prevents a single observed event from rewriting assumptions — at 1 event the effective factor shifts only 5% of the way toward the calibration factor; at 20+ events it fully converges.
 

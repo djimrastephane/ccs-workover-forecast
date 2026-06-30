@@ -1467,10 +1467,16 @@ def _render_calibration():
 6. When confidence is sufficient, apply the recommended MTTF updates
 
 **Formula:**
-- `calibration_factor = observed_rate / expected_rate`
+- `expected_failures = Σ base_rate × bathtub_mult(t)` — summed over all observed well-years
+- `calibration_factor = observed_failures / expected_failures`
 - `confidence = min(observed_events / 20, 1.0)`
 - `effective_factor = 1 + confidence × (calibration_factor − 1)`
 - `calibrated_MTTF = base_MTTF / effective_factor`
+
+`bathtub_mult(t)` is the lifecycle phase multiplier for year *t* of operation (1.5× infant
+mortality years 1–2; 1.0× useful life; ramping to 1.8× wear-out). Weighting the expected
+count by lifecycle phase ensures the calibration factor corrects only for genuine MTTF
+underestimation — not for effects the simulation already applies via the bathtub curve.
 
 The confidence weighting prevents a single event from rewriting the entire assumption set.
 With 1 event, confidence = 5% — the calibrated MTTF shifts only 5% of the way toward the
