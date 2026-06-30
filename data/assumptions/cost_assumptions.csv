@@ -9,6 +9,7 @@ monitoring_cost,base_case,100000,per_well_per_year,Annual well monitoring and in
 abandonment_cost,base_case,5000000,per_well,Well P&A — cement squeeze and cap
 post_workover_verification_cost,base_case,200000,per_event,CBL + casing inspection + pressure test required before CO2 re-injection clearance after any full rig workover
 co2_handling_uplift_factor,base_case,1.15,multiplier,CO2-rated BOP equipment and special procedures — per NZTC/DNV CCS Wells Technology Roadmap s4.2.1
+co_location_discount_factor,base_case,0.25,multiplier,Fraction of standalone cost charged for secondary components co-located on the same well in the same year (primary intervention charged in full)
 rig_mobilisation,offshore_high_cost,3500000,per_campaign,Deep water or harsh environment mob premium
 rig_day_rate,offshore_high_cost,250000,per_day,High-spec drillship or semi
 rigless_intervention_cost,offshore_high_cost,400000,per_event,Subsea or deepwater rigless premium
@@ -19,3 +20,4 @@ monitoring_cost,offshore_high_cost,200000,per_well_per_year,ROV surveys and subs
 abandonment_cost,offshore_high_cost,8000000,per_well,Subsea well P&A
 post_workover_verification_cost,offshore_high_cost,350000,per_event,Deepwater CBL and integrity evaluation — subsea toolstring premium
 co2_handling_uplift_factor,offshore_high_cost,1.20,multiplier,Higher CO2 handling costs for subsea or deepwater interventions
+co_location_discount_factor,offshore_high_cost,0.25,multiplier,Fraction of standalone cost charged for secondary components co-located on the same well in the same year (primary intervention charged in full)

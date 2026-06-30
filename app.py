@@ -325,6 +325,17 @@ with st.sidebar:
         'Max Deferral (years)', 1, 5, 3,
         help='Force a campaign if the oldest deferred item exceeds this age',
     )
+    co_location_discount_pct = st.slider(
+        'Co-location Discount (%)', 0, 80, 25, step=5,
+        help=(
+            'When multiple components fail on the same well in the same year, '
+            'the most expensive intervention is charged in full; additional '
+            'components are charged this percentage of their standalone cost. '
+            '25% = a $2.5M tubing pull co-located with a $0.2M gauge swap '
+            'costs $2.5M + $50k, not $2.7M.'
+        ),
+    )
+    co_location_discount_factor = co_location_discount_pct / 100
 
     st.markdown('<div class="sb-section">🔧 Fleet Equipment Coverage</div>', unsafe_allow_html=True)
     with st.expander('Configure penetration rates', expanded=False):
@@ -398,6 +409,7 @@ if run_btn:
             monitoring_program=monitoring_program,
             on_progress=_on_progress,
             component_penetration_rates=component_penetration_rates,
+            co_location_discount_factor=co_location_discount_factor,
         )
         _sim_status.update(label='Simulation complete', state='complete', expanded=False)
 
@@ -425,6 +437,7 @@ if run_btn:
         campaign_threshold=campaign_threshold, max_deferral_years=max_deferral_years,
         monitoring_program=monitoring_program,
         component_penetration_rates=component_penetration_rates,
+        co_location_discount_factor=co_location_discount_factor,
     )
     narrative = generate_executive_narrative(
         failure_df, annual_forecast, campaign_log, lifecycle_summary, params)

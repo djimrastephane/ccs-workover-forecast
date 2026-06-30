@@ -9,6 +9,7 @@ from .config_loader import (
     load_monitoring_config,
 )
 from .failure_generator import generate_all_failures
+from .bundling import apply_co_location_discount
 from .intervention_engine import apply_intervention_decisions
 from .campaign_scheduler import schedule_campaigns
 from .economics import compute_annual_economics, compute_lifecycle_summary
@@ -27,6 +28,7 @@ def run_simulation(
     seed: int = 42,
     on_progress=None,
     component_penetration_rates: dict | None = None,
+    co_location_discount_factor: float = 0.25,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """
     Orchestrate the full Monte Carlo simulation pipeline.
@@ -90,7 +92,13 @@ def run_simulation(
     # Extract scalars before applying cost_multiplier
     co2_uplift   = float(raw_costs.get('co2_handling_uplift_factor', 1.0))
     post_verify  = float(raw_costs.get('post_workover_verification_cost', 0.0))
-    _scalar_keys = {'co2_handling_uplift_factor', 'post_workover_verification_cost'}
+    # co_location_discount_factor is controlled by the caller (sidebar slider);
+    # exclude from raw_costs so it is not multiplied by cost_multiplier
+    _scalar_keys = {
+        'co2_handling_uplift_factor',
+        'post_workover_verification_cost',
+        'co_location_discount_factor',
+    }
 
     cost_assumptions = {k: v * cost_multiplier for k, v in raw_costs.items()
                         if k not in _scalar_keys}
@@ -121,6 +129,11 @@ def run_simulation(
 
     if failure_df.empty:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}
+
+    # ── Apply co-location discount ────────────────────────────────────────────
+    # When multiple components fail on the same well in the same year, charge
+    # the most expensive in full and apply co_location_discount_factor to the rest.
+    failure_df = apply_co_location_discount(failure_df, co_location_discount_factor)
 
     # ── Apply intervention decision rules ─────────────────────────────────────
     _progress('Applying barrier hierarchy and escalation rules…', 0.75)
