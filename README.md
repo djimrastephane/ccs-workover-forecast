@@ -134,6 +134,7 @@ All assumptions live in `data/assumptions/`. Edit the CSVs to change reliability
 | `injector_only` | Component only present on injection wells |
 | `trsv_only` | Component only enabled when TRSV/SCSSV is active (offshore config) |
 | `detection_prob` | Probability a developing failure is caught before becoming a reactive emergency |
+| `penetration_rate` | Fraction of wells in the fleet that have this component installed (0.0–1.0). Default `1.0` means every well is equipped. Set to e.g. `0.6` to model a mixed fleet where only 60% of wells have this component. The equipped subset is drawn randomly from the fleet and held fixed across all simulations within a run. |
 
 Fifteen components are modelled across four barrier classes, covering the taxonomy in the NZTC/DNV CCS Wells Technology Roadmap (2025):
 

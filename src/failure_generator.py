@@ -125,6 +125,7 @@ def generate_all_failures(
         can_defer = bool(comp['can_defer'])
         safety_critical = bool(comp['safety_critical'])
         detection_prob = float(comp.get('detection_prob', 0.0))
+        penetration_rate = float(comp.get('penetration_rate', 1.0))
         default_imm = _BARRIER_PRIORITY.get(barrier_class, 'deferred')
         imm_or_def = 'immediate' if safety_critical or not can_defer else default_imm
         duration = float(comp['default_duration_days'])
@@ -159,6 +160,16 @@ def generate_all_failures(
 
         if injector_only:
             failures[:, is_monitoring, :] = False
+
+        # Penetration rate: which wells actually have this component installed.
+        # Fixed randomly per component for the whole run (seeded by rng);
+        # set penetration_rate < 1.0 in the CSV to model partial fleet coverage.
+        if penetration_rate < 1.0:
+            n_equipped = max(1, round(penetration_rate * n_wells))
+            not_equipped = rng.permutation(n_wells)[n_equipped:]
+            failures[:, not_equipped, :] = False
+        else:
+            not_equipped = np.empty(0, dtype=int)
 
         sim_idx, well_idx, year_idx = np.where(failures)
 
@@ -214,6 +225,10 @@ def generate_all_failures(
         # Injector-only: monitoring wells are ineligible for threshold events
         if injector_only:
             prev_years[:, is_monitoring] = operating_years + 1
+
+        # Penetration rate: non-equipped wells never trigger threshold events
+        if len(not_equipped) > 0:
+            prev_years[:, not_equipped] = operating_years + 1
 
         eligible_mask = prev_years <= operating_years          # (n_sims, n_wells)
         sim_rep, well_rep = np.where(eligible_mask)
