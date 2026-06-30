@@ -395,7 +395,7 @@ The global random seed (default 42) is set once in `run_simulation()`. The same 
 | [NZTC / DNV — CCS Wells Technology Roadmap (2025)](https://www.netzerotc.com/wp-content/uploads/2025/10/CCS_Wells_Technology_Roadmap_report.pdf) | Component taxonomy, CCS-specific failure mechanisms (Joule-Thomson, carbonation, thermal cycling), intervention and monitoring technology landscape |
 | [PMC10407664 — JPN-1 CCS Pilot Well Integrity Assessment (2023)](https://pmc.ncbi.nlm.nih.gov/articles/PMC10407664/) | Real-world case study of abandoned well conversion to CO₂ injection; calibrates cement_barrier detection_prob (CBL tool failure); supports Legacy Well Conversion scenario (2.5× multiplier) and monitoring tool sensitivity floor |
 | ISO 16530-1:2017 | Well integrity lifecycle framework; defines barrier element hierarchy, well status classification, inspection intervals, and acceptance criteria used throughout this model — covers both lifecycle governance and operational phase requirements |
-| ISO 27914:2017 | CO₂ geological storage — well infrastructure, integrity, and monitoring requirements |
+| ISO 27914:2026 | CO₂ geological storage — well infrastructure, integrity, and monitoring requirements |
 | API RP 90 | Annular casing pressure management in offshore wells — directly relevant to casing_valve and sustained casing pressure failure modes |
 | API Spec 5CRA | Corrosion-resistant alloy seamless tubes — material qualification standard for CO₂ service; used to validate tubing P10_MTTF assumptions |
 | NORSOK D-010 | Well integrity in drilling and well operations; used to guide CCS well construction and MTTF analogues |
