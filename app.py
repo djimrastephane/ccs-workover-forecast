@@ -783,6 +783,84 @@ def _render_risk():
 
     # ── Developer additions ───────────────────────────────────────────────────
     if view_mode == 'Developer':
+        section('DEVELOPER — PEAK YEAR DEMAND DRILL-DOWN')
+        st.caption(
+            'Traces P50 Peak Annual Demand to its component sources. '
+            'Shows which components drive the busiest year and why the headline number is what it is.'
+        )
+
+        # Find P50 peak year across all simulations
+        _ann_demand = (
+            failure_df.groupby(['simulation_id', 'year'])
+            .size()
+            .reset_index(name='n_events')
+        )
+        _peak_rows = _ann_demand.loc[
+            _ann_demand.groupby('simulation_id')['n_events'].idxmax()
+        ]
+        _p50_peak_year  = int(_peak_rows['year'].median())
+        _p50_peak_count = _peak_rows['n_events'].median()
+
+        # Lifecycle multiplier active in that year (same for all components)
+        _peak_df = failure_df[failure_df['year'] == _p50_peak_year]
+        _peak_lc_mult = float(_peak_df['lifecycle_multiplier'].iloc[0]) if not _peak_df.empty else 1.0
+
+        # KPI strip
+        _n_sims = params['n_simulations']
+        _k1, _k2, _k3, _k4 = st.columns(4)
+        with _k1:
+            st.metric('P50 Peak Year', f'Year {_p50_peak_year}')
+        with _k2:
+            st.metric('Lifecycle Multiplier', f'{_peak_lc_mult:.2f}×')
+        with _k3:
+            st.metric('Avg Events in Peak Year', f'{_p50_peak_count:.0f}')
+        with _k4:
+            _n_comp_slots = params['n_wells'] * failure_df['component'].nunique()
+            _trigger_rate = _p50_peak_count / _n_comp_slots * 100
+            st.metric('Component Trigger Rate', f'{_trigger_rate:.1f}%',
+                      help=f'{_p50_peak_count:.0f} events ÷ ({params["n_wells"]} wells × {failure_df["component"].nunique()} components)')
+
+        # Component breakdown: avg events per simulation in the P50 peak year
+        _bkd = (
+            _peak_df
+            .groupby(['display_name', 'intervention_type'])
+            .agg(total_events=('simulation_id', 'count'))
+            .reset_index()
+        )
+        _bkd['avg_per_sim']   = (_bkd['total_events'] / _n_sims).round(2)
+        _bkd['pct_of_peak']   = (_bkd['total_events'] / max(_peak_df.shape[0], 1) * 100).round(1)
+        _bkd = _bkd.sort_values('avg_per_sim', ascending=False).reset_index(drop=True)
+
+        _bkd_fig = px.bar(
+            _bkd, x='display_name', y='avg_per_sim', color='intervention_type',
+            labels={
+                'display_name': '',
+                'avg_per_sim': 'Avg events in peak year (per simulation)',
+                'intervention_type': 'Intervention type',
+            },
+            title=f'Year {_p50_peak_year} breakdown — avg component events per simulation (lifecycle mult: {_peak_lc_mult:.2f}×)',
+            color_discrete_map={
+                'full_workover':        '#ef4444',
+                'light_intervention':   '#f59e0b',
+                'rigless_intervention': '#3b82f6',
+            },
+        )
+        _bkd_fig.update_layout(
+            template='plotly_dark', height=380, xaxis_tickangle=-35,
+            paper_bgcolor='#111827', plot_bgcolor='#0f172a',
+        )
+        st.plotly_chart(_bkd_fig, use_container_width=True, key='dev_peak_bkd_bar')
+
+        _bkd_show = _bkd[['display_name', 'intervention_type', 'avg_per_sim', 'pct_of_peak']].copy()
+        _bkd_show.columns = ['Component', 'Intervention Type', 'Avg events / sim', '% of peak demand']
+        st.dataframe(_bkd_show, use_container_width=True, hide_index=True)
+
+        st.caption(
+            f'{_p50_peak_count:.0f} events across {params["n_wells"]} wells with '
+            f'{failure_df["component"].nunique()} tracked components = '
+            f'**{_trigger_rate:.1f}%** of component-well slots triggering in a single year.'
+        )
+
         section('DEVELOPER — SAMPLED MTTF DISTRIBUTION')
         st.caption(
             'Distribution of MTTF values drawn for each component across all simulations and wells. '
