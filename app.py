@@ -1467,11 +1467,13 @@ def _render_calibration():
         )
         st.dataframe(
             _cf_display.style.apply(_style_row, axis=1).format({
-                'Mode MTTF (yr)':       '{:.0f}',
-                'Expected Failures':    '{:.1f}',
-                'Confidence':           '{:.0%}',
-                'Effective Factor':     '{:.3f}',
-                'Calibration Factor':   lambda x: f'{x:.3f}' if pd.notna(x) else '—',
+                'Mode MTTF (yr)':        '{:.0f}',
+                'Raw Well-Years':        '{:.0f}',
+                'Bathtub Exposure':      '{:.0f}',
+                'Expected Failures':     '{:.1f}',
+                'Confidence':            '{:.0%}',
+                'Effective Factor':      '{:.3f}',
+                'Calibration Factor':    lambda x: f'{x:.3f}' if pd.notna(x) else '—',
                 'Recommended MTTF (yr)': '{:.0f}',
             }),
             use_container_width=True,
