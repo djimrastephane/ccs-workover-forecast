@@ -69,43 +69,56 @@ ccs-workover-forecast/
 
 ## Simulation pipeline
 
+The model answers one question: **over the operating life of a CO₂ storage field, how many times will wells need intervention, when will those interventions cluster, and what will they cost?** It does this by running thousands of independent "what-if" scenarios simultaneously and reporting the range of outcomes (optimistic, central, and high-cost).
+
 ```mermaid
 %%{init: {'theme': 'neutral'}}%%
 flowchart TD
-    subgraph INPUTS["Inputs"]
-        F1["component_failure_assumptions.csv\nP10/P90 MTTF · detection_prob · barrier class"]
-        F2["monitoring_config.csv\ndetection_prob per monitoring tier"]
-        F3["cost_assumptions.csv\nrig · workover · CO2 uplift · deferred injection"]
-        F4["scenario_config.csv\nfailure/cost multipliers · SCSSV flag"]
-        UP(["User Parameters\nn_simulations · n_wells · operating_years\nscenario · monitoring_program · seed"])
+    subgraph INPUTS["What goes in"]
+        F1["Equipment reliability data\nHow long each component typically lasts\nHow well the monitoring programme detects early warnings\nWhich fraction of wells have each component installed"]
+        F2["Monitoring programme\nMinimal · Standard · Comprehensive\nControls how often problems are caught before they escalate"]
+        F3["Cost data\nRig day-rates · repair cost by intervention type\nCO₂ handling premium · mandatory post-workover inspection"]
+        F4["Scenario\nRisk environment: base case, high corrosion, legacy wells, etc.\nScales both failure likelihood and repair costs"]
+        UP(["Simulation settings\nNumber of wells · operating life in years\nNumber of Monte Carlo runs\nFleet equipment coverage — which wells have fiber optics,\nflowmeters, casing isolation valves, etc."])
     end
 
-    S1["Stage 1 · Config Assembly\nApply scenario multipliers to costs\nOverride detection_prob by monitoring tier\nExtract CO2 uplift + post-workover verification cost"]
+    S1["Stage 1 — Setup\nCombine the chosen scenario with base cost data\nSet each component's early-detection capability\nbased on the monitoring programme\nApply fleet coverage — components not installed\non a well cannot fail or generate cost for that well"]
 
-    S2["Stage 2 · Failure Generation  failure_generator.py\nSample MTTF per sim x well from Triangular P10/P90\nAnnual prob x bathtub-curve x scenario multiplier\nBernoulli trials: n_sims x n_wells x n_years\nDetected reactive → preventive at 80% cost\nThreshold-triggered preventive when cumulative P ≥ 90%"]
+    S2["Stage 2 — Simulating failures\nRun thousands of independent scenarios in parallel\nIn each scenario, every well draws its own random failure timeline\nFailure risk follows a bathtub curve — higher in early years\nand again near end of design life, lower in between\nFailures caught early by monitoring become planned repairs\n(cheaper and schedulable) rather than emergencies"]
 
-    S3["Stage 3 · Intervention Decisions  intervention_engine.py\nSafety reactive failures → immediate response\nInjectivity repeat on same well → full workover\n2+ medium/high failures in 3-yr window → escalate well"]
+    S3["Stage 3 — Deciding what to do\nSafety-critical failures → emergency response, no delay allowed\nFlow or monitoring failures → add to deferred repair queue\nRepeat failure on same well → escalate to full workover\nTwo or more serious failures within 3 years → treat well as critical"]
 
-    S4["Stage 4 · Campaign Scheduling  campaign_scheduler.py\nImmediate → emergency/urgent campaign that year\nDeferred queue → batch on size or max-age trigger\nRig mobilisation charged once per rig campaign"]
+    S4["Stage 4 — Planning workover campaigns\nEmergency repairs → mobilise a rig in that year\nDeferred repairs → batch into a campaign once enough accumulate\nor before the oldest queued item waits too long\nRig mobilisation cost is shared across all wells in a campaign"]
 
-    S5["Stage 5 · Economics  economics.py\nSum costs per simulation x year\nAdd mobilisation + deferred injection penalty\nCompute P10 / P50 / P90 lifecycle statistics"]
+    S5["Stage 5 — Calculating costs\nAdd up repair, mobilisation and lost-injection costs\nfor every well, every year, across all scenarios\nReport the optimistic, central and high-cost outcome\nas the P10, P50 and P90 of the distribution"]
 
-    subgraph OUTPUTS["Outputs returned by run_simulation()"]
-        O1["failure_df\nevent log — one row per sim x well x component x year"]
-        O2["campaign_log\none row per campaign"]
-        O3["annual_costs\none row per simulation x year"]
-        O4["lifecycle_summary\nP10/P50/P90 cost · workovers · interventions"]
+    subgraph OUTPUTS["What comes out"]
+        O1["Failure event log\nEvery failure across every well and year, in every scenario"]
+        O2["Campaign schedule\nTiming, size and cost of each workover campaign"]
+        O3["Annual cost profile\nYear-by-year spend distribution across all scenarios"]
+        O4["Lifecycle summary\nP10 · P50 · P90 total cost, workovers, and peak annual demand"]
     end
 
-    APP["Streamlit App — reporting.py · plotting.py\nAnnual Forecast · Cost Waterfall · Component Risk\nAsset Health · Heatmap · Model QA · CSV exports"]
+    APP["Dashboard\nWorkover fan charts · risk matrix · campaign Gantt\nlifecycle economics · asset health · model QA\nAll results downloadable as CSV"]
 
     INPUTS --> S1 --> S2 --> S3 --> S4 --> S5
-    S3 -.->|failure_df| O1
-    S4 -.->|campaign_log| O2
-    S5 -.->|annual_costs| O3
-    S5 -.->|lifecycle_summary| O4
+    S3 -.->|failure events| O1
+    S4 -.->|campaign log| O2
+    S5 -.->|annual costs| O3
+    S5 -.->|lifecycle summary| O4
     O1 & O2 & O3 & O4 --> APP
 ```
+
+**Reading the outputs — what P10 / P50 / P90 means:**
+The model runs the same field hundreds or thousands of times, each with a different random sequence of failures. P50 is the median outcome — half of simulated futures cost less, half cost more. P10 is the optimistic end (only 10% of futures are cheaper). P90 is the high-cost end (only 10% of futures are more expensive). The gap between P10 and P90 is the model's uncertainty range, driven mainly by how uncertain the reliability assumptions are.
+
+| Stage | Source file | Key logic |
+|---|---|---|
+| 1 — Setup | `simulation.py` · `config_loader.py` | Scenario multipliers, monitoring override, CO₂ uplift, fleet coverage patch |
+| 2 — Failure generation | `failure_generator.py` | Triangular MTTF sample per (sim, well); bathtub curve; Bernoulli draws; penetration mask |
+| 3 — Intervention decisions | `intervention_engine.py` | Barrier hierarchy; injectivity escalation; multi-failure escalation |
+| 4 — Campaign scheduling | `campaign_scheduler.py` | Immediate queue; deferred batch by size or max-age; mob cost allocation |
+| 5 — Economics | `economics.py` | Per-(sim, year) cost aggregation; P10/P50/P90 lifecycle statistics |
 
 ---
 
