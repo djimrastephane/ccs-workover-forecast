@@ -152,7 +152,7 @@ Fifteen components are modelled across four barrier classes, covering the taxono
 | Hydraulic Control Line | Safety | 10 yr | 25 yr | Full workover | 85% | trsv_only; line runs outside tubing string — replacement requires pulling tubing |
 | Injectivity / Flow Assurance | Flow assurance | 8 yr | 20 yr | Rigless (escalates) | 50% | injector_only |
 | P/T Gauge | Monitoring | 15 yr | 26 yr | Rigless | 90% | |
-| Fiber Optics | Monitoring | 12 yr | 26 yr | Full workover | 85% | assumes permanent installation strapped to tubing string |
+| Fiber Optics | Monitoring | 12 yr | 26 yr | Full workover | 85% | default assumes permanent installation strapped to tubing string; **FIPA (pumped fiber) exception**: if wells use a pre-installed capillary tube through which fiber is hydraulically pumped, replacement is rigless — override `intervention_type` to `rigless_intervention` in `component_failure_assumptions.csv` |
 | CO₂ Injection Flow Meter | Monitoring | 8 yr | 22 yr | Rigless | 70% | injector_only; MMV compliance |
 
 Safety barriers (TRSV, Cement, Casing, SSV, CIV, Tubing Hanger) carry longer MTTF values reflecting their role as the last line of defence — failures are rare, high-consequence events, not routine cost drivers. Detection probability is low for downhole safety barriers because defects (micro-annuli, casing corrosion) develop below the surface and are hard to identify without integrity testing programmes.
