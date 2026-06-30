@@ -13,6 +13,9 @@ from .bundling import apply_co_location_discount
 from .intervention_engine import apply_intervention_decisions
 from .campaign_scheduler import schedule_campaigns
 from .economics import compute_annual_economics, compute_lifecycle_summary
+from .field_calibration import (
+    load_observed_events, compute_calibration_factors, apply_field_calibration,
+)
 
 
 def run_simulation(
@@ -29,6 +32,7 @@ def run_simulation(
     on_progress=None,
     component_penetration_rates: dict | None = None,
     co_location_discount_factor: float = 0.25,
+    field_id: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """
     Orchestrate the full Monte Carlo simulation pipeline.
@@ -77,6 +81,14 @@ def run_simulation(
             component_assumptions['component'].map(mon_map)
             .fillna(component_assumptions['detection_prob'])
         )
+
+    # ── Apply field calibration (observed vs expected failure rates) ─────────────
+    if field_id:
+        _obs = load_observed_events()
+        if not _obs.empty:
+            _cal = compute_calibration_factors(_obs, component_assumptions, field_id)
+            if not _cal.empty:
+                component_assumptions = apply_field_calibration(component_assumptions, _cal)
 
     # ── Apply fleet coverage overrides (penetration_rate per component) ─────────
     if component_penetration_rates:

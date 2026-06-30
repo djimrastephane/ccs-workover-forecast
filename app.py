@@ -14,6 +14,10 @@ from src.explainability import (
     explain_campaign_count, explain_highest_risk,
 )
 from src.calibration import compute_calibration_score, compute_uncertainty_decomposition
+from src.field_calibration import (
+    load_observed_events, list_fields,
+    compute_calibration_factors, compute_maturity_score, detect_drift,
+)
 from src.reporting import (
     build_annual_forecast, build_component_summary, build_scenario_comparison,
     get_highest_risk_component, format_cost,
@@ -255,6 +259,13 @@ with st.sidebar:
     n_monitoring = n_wells - n_injectors
     st.caption(f'{n_injectors} injectors · {n_monitoring} monitoring wells')
     operating_years = st.slider('Operating Life (years)', 10, 40, 30, step=5)
+    if view_mode != 'Executive':
+        first_injection_year = st.number_input(
+            'First Injection Year', min_value=2020, max_value=2060, value=2030, step=1,
+            help='Used to display calendar years in peak-year analysis and calibration timeline.',
+        )
+    else:
+        first_injection_year = 2030
 
     st.markdown('<div class="sb-section">⚙️ Simulation</div>', unsafe_allow_html=True)
     scenario_id = st.selectbox(
@@ -315,6 +326,29 @@ with st.sidebar:
         'comprehensive': 'DTS/DAS + wireless B-annulus + corrosion monitoring — maximum early detection',
     }
     st.caption(_MON_DESC[monitoring_program])
+
+    if view_mode != 'Executive':
+        st.markdown('<div class="sb-section">🎯 Field Calibration</div>', unsafe_allow_html=True)
+        _obs_events_sidebar = load_observed_events()
+        _available_fields   = list_fields(_obs_events_sidebar)
+        _field_options      = ['None (global assumptions)'] + _available_fields
+        _field_choice       = st.selectbox(
+            'Reference Field',
+            options=_field_options,
+            help=(
+                'Select a field with observed operational data to calibrate the MTTF '
+                'assumptions before running the simulation. Calibration factors are '
+                'confidence-weighted so sparse datasets have limited influence.'
+            ),
+        )
+        field_id = _field_choice if _field_choice != 'None (global assumptions)' else None
+        if field_id:
+            _n_obs = len(_obs_events_sidebar[_obs_events_sidebar['field_id'] == field_id])
+            st.caption(f'{_n_obs} observed events loaded for **{field_id}**.')
+        else:
+            st.caption('No field selected — using global literature assumptions.')
+    else:
+        field_id = None
 
     st.markdown('<div class="sb-section">📋 Campaign Rules</div>', unsafe_allow_html=True)
     campaign_threshold = st.slider(
@@ -410,6 +444,7 @@ if run_btn:
             on_progress=_on_progress,
             component_penetration_rates=component_penetration_rates,
             co_location_discount_factor=co_location_discount_factor,
+            field_id=field_id,
         )
         _sim_status.update(label='Simulation complete', state='complete', expanded=False)
 
@@ -438,6 +473,8 @@ if run_btn:
         monitoring_program=monitoring_program,
         component_penetration_rates=component_penetration_rates,
         co_location_discount_factor=co_location_discount_factor,
+        field_id=field_id,
+        first_injection_year=first_injection_year,
     )
     narrative = generate_executive_narrative(
         failure_df, annual_forecast, campaign_log, lifecycle_summary, params)
@@ -450,6 +487,18 @@ if run_btn:
     qa_warnings = generate_qa_warnings(qa_metrics, qa_params)
     tornado_df  = compute_uncertainty_decomposition(contributions, component_assumptions_for_heatmap, n_simulations)
 
+    # ── Field calibration results (for Calibration tab display) ──────────────
+    _observed_events = load_observed_events()
+    _cal_factors     = pd.DataFrame()
+    _maturity_score  = {}
+    _drift_alerts: list[dict] = []
+    _cal_field_id    = field_id or (list_fields(_observed_events)[0] if not _observed_events.empty else None)
+    if not _observed_events.empty:
+        _comp_assum = load_component_assumptions()
+        _cal_factors    = compute_calibration_factors(_observed_events, _comp_assum, _cal_field_id)
+        _maturity_score = compute_maturity_score(_observed_events, _cal_factors, _cal_field_id)
+        _drift_alerts   = detect_drift(_cal_factors)
+
     st.session_state.results = dict(
         failure_df=failure_df, campaign_log=campaign_log, annual_costs=annual_costs,
         lifecycle_summary=lifecycle_summary, annual_forecast=annual_forecast,
@@ -458,6 +507,9 @@ if run_btn:
         narrative=narrative, params=params, heatmap_df=heatmap_df,
         assumption_quality=assumption_quality, calibration_score=calibration_score,
         qa_metrics=qa_metrics, qa_warnings=qa_warnings, tornado_df=tornado_df,
+        observed_events=_observed_events, cal_factors=_cal_factors,
+        maturity_score=_maturity_score, drift_alerts=_drift_alerts,
+        cal_field_id=_cal_field_id,
     )
 
 # ── Landing state ─────────────────────────────────────────────────────────────
@@ -497,24 +549,31 @@ calibration_score  = r.get('calibration_score', {})
 qa_metrics         = r.get('qa_metrics', {})
 qa_warnings        = r.get('qa_warnings', [])
 tornado_df         = r.get('tornado_df', pd.DataFrame())
+observed_events    = r.get('observed_events', pd.DataFrame())
+cal_factors        = r.get('cal_factors', pd.DataFrame())
+maturity_score     = r.get('maturity_score', {})
+drift_alerts       = r.get('drift_alerts', [])
+cal_field_id       = r.get('cal_field_id')
 
 scen_label = _SCENARIO_LABELS.get(params['scenario_id'], params['scenario_id'])
 fpm        = params.get('failure_prob_multiplier', 1.0)
 
 # ── Tab navigation ────────────────────────────────────────────────────────────
 _ALL_TAB_DEFS = [
-    ('overview',    '📊  Overview'),
-    ('forecast',    '📈  Lifecycle Forecast'),
-    ('risk',        '⚠️  Risk & Failure Modes'),
-    ('campaigns',   '🏗  Campaign Planning'),
-    ('economics',   '💰  Economics'),
-    ('scenarios',   '🔀  Scenario Comparison'),
-    ('qa',          '🔬  Model QA'),
-    ('assumptions', '⚙️  Assumptions'),
+    ('overview',     '📊  Overview'),
+    ('forecast',     '📈  Lifecycle Forecast'),
+    ('risk',         '⚠️  Risk & Failure Modes'),
+    ('campaigns',    '🏗  Campaign Planning'),
+    ('economics',    '💰  Economics'),
+    ('scenarios',    '🔀  Scenario Comparison'),
+    ('calibration',  '🎯  Field Calibration'),
+    ('qa',           '🔬  Model QA'),
+    ('assumptions',  '⚙️  Assumptions'),
 ]
 _MODE_TABS = {
     'Executive':   {'overview', 'scenarios'},
-    'Engineering': {'overview', 'forecast', 'risk', 'campaigns', 'economics', 'scenarios', 'assumptions'},
+    'Engineering': {'overview', 'forecast', 'risk', 'campaigns', 'economics', 'scenarios',
+                    'calibration', 'assumptions'},
     'Developer':   {t[0] for t in _ALL_TAB_DEFS},
 }
 _active_tabs  = [(k, lbl) for k, lbl in _ALL_TAB_DEFS if k in _MODE_TABS[view_mode]]
@@ -834,16 +893,19 @@ def _render_risk():
 
         # KPI strip
         _n_sims = params['n_simulations']
+        _first_inj_yr  = params.get('first_injection_year', 2030)
+        _cal_peak_year = _first_inj_yr + _p50_peak_year - 1
+        _n_comp_slots  = params['n_wells'] * failure_df['component'].nunique()
+        _trigger_rate  = _p50_peak_count / _n_comp_slots * 100
         _k1, _k2, _k3, _k4 = st.columns(4)
         with _k1:
-            st.metric('P50 Peak Year', f'Year {_p50_peak_year}')
+            st.metric('P50 Peak Year', f'Year {_p50_peak_year}',
+                      delta=f'Cal. year {_cal_peak_year}', delta_color='off')
         with _k2:
             st.metric('Lifecycle Multiplier', f'{_peak_lc_mult:.2f}×')
         with _k3:
             st.metric('Avg Events in Peak Year', f'{_p50_peak_count:.0f}')
         with _k4:
-            _n_comp_slots = params['n_wells'] * failure_df['component'].nunique()
-            _trigger_rate = _p50_peak_count / _n_comp_slots * 100
             st.metric('Component Trigger Rate', f'{_trigger_rate:.1f}%',
                       help=f'{_p50_peak_count:.0f} events ÷ ({params["n_wells"]} wells × {failure_df["component"].nunique()} components)')
 
@@ -887,6 +949,26 @@ def _render_risk():
             f'{failure_df["component"].nunique()} tracked components = '
             f'**{_trigger_rate:.1f}%** of component-well slots triggering in a single year.'
         )
+
+        # ── Worst year narrative ─────────────────────────────────────────────
+        _top_comps = _bkd.head(3)['display_name'].tolist()
+        _top2_str  = ' and '.join(_top_comps[:2]) if len(_top_comps) >= 2 else _top_comps[0]
+        _top2_pct  = float(_bkd.head(2)['pct_of_peak'].sum()) if len(_bkd) >= 2 else float(_bkd.head(1)['pct_of_peak'].sum())
+        _prev_n  = (_peak_df['trigger_type'] == 'preventive').sum() / max(_n_sims, 1)
+        _total_n = _peak_df.shape[0] / max(_n_sims, 1)
+        _prev_pct = _prev_n / max(_total_n, 0.001) * 100
+        _peak_wells = _peak_df.groupby('simulation_id')['well_id'].nunique().median()
+        _rig_events = (_peak_df['intervention_type'] == 'full_workover').sum() / max(_n_sims, 1)
+        _narrative_txt = (
+            f"The peak intervention year is **{_cal_peak_year}** (Year **{_p50_peak_year}** of field "
+            f"life), when the wear-out phase reaches **{_peak_lc_mult:.2f}×** baseline failure rates. "
+            f"**{_top2_str}** are the primary drivers, together accounting for "
+            f"**{_top2_pct:.0f}%** of peak-year events. "
+            f"The simulated fleet requires **{int(_p50_peak_count)}** component interventions across "
+            f"**{int(_peak_wells)}** wells, with **{_prev_pct:.0f}%** caught preventively before "
+            f"failure and **{_rig_events:.1f}** requiring rig access (full workover)."
+        )
+        st.markdown(narrative_card(_narrative_txt), unsafe_allow_html=True)
 
         # Well-level drill-down: pick the representative simulation closest to P50
         section('DEVELOPER — PEAK YEAR WELL-LEVEL BREAKDOWN')
@@ -1184,6 +1266,216 @@ def _render_scenarios():
             fmt  = {c: '${:,.0f}' for c in show if 'cost' in c}
             fmt.update({c: '{:.0f}' for c in show if 'cost' not in c and c != 'scenario'})
             st.dataframe(comparison_df[show].style.format(fmt), use_container_width=True)
+
+
+def _render_calibration():
+    _bc = _BORDER.get(maturity_score.get('color', 'red'), _BORDER['red'])
+    _score = maturity_score.get('score', 0.0)
+    _level = maturity_score.get('level', 'No data')
+    _bkd   = maturity_score.get('breakdown', {})
+
+    # ── Maturity score header ─────────────────────────────────────────────────
+    section('RELIABILITY MATURITY SCORE')
+    _m1, _m2, _m3, _m4 = st.columns(4)
+    with _m1:
+        st.markdown(kpi_card(
+            'Maturity Score', f'{_score:.0f} / 100', _level,
+            maturity_score.get('color', 'red')), unsafe_allow_html=True)
+    with _m2:
+        st.metric('Years of History', f'{_bkd.get("years_history", 0):.0f} yr')
+    with _m3:
+        st.metric('Observed Events', f'{_bkd.get("n_calibrable_events", 0)}')
+    with _m4:
+        st.metric('Components Covered',
+                  f'{_bkd.get("n_components_covered", 0)} / 15')
+
+    _maturity_ranges = [
+        ('0–20',  'Concept study',    'No operational data — using literature assumptions only.'),
+        ('20–40', 'Pre-FEED',         'Very early operations — calibration has minimal influence.'),
+        ('40–60', 'FEED',             'Enough history to start adjusting conservative assumptions.'),
+        ('60–80', 'Early operations', 'Meaningful calibration — model is becoming field-specific.'),
+        ('80–100','Mature field',     'High confidence — model reflects this field\'s behaviour.'),
+    ]
+    with st.expander('Maturity scale reference', expanded=False):
+        for rng, lbl, desc in _maturity_ranges:
+            st.markdown(f'**{rng}** — **{lbl}**: {desc}')
+
+    # ── Active field ──────────────────────────────────────────────────────────
+    _active_field = params.get('field_id') or cal_field_id
+    if _active_field:
+        st.info(
+            f'Calibration reference: **{_active_field}** · '
+            f'{_bkd.get("n_calibrable_events", 0)} calibrable events · '
+            f'{_bkd.get("years_history", 0):.0f} years of history',
+            icon='🎯',
+        )
+        if params.get('field_id'):
+            st.success(
+                f'Field calibration **active** — MTTF assumptions were adjusted before '
+                f'this simulation run using {_active_field} data.',
+                icon='✅',
+            )
+        else:
+            st.warning(
+                f'Field data loaded for display only — run again with **{_active_field}** '
+                f'selected in the sidebar to apply calibration to the simulation.',
+                icon='⚠️',
+            )
+    else:
+        st.info(
+            'No field selected. Select a reference field in the sidebar to enable calibration.',
+            icon='ℹ️',
+        )
+
+    # ── Drift alerts ─────────────────────────────────────────────────────────
+    if drift_alerts:
+        section('DRIFT DETECTION')
+        for alert in drift_alerts:
+            sev = alert['severity']
+            icon = '🔴' if sev == 'critical' else '🟡' if sev == 'warning' else 'ℹ️'
+            st.markdown(narrative_card(f'{icon}  {alert["message"]}'), unsafe_allow_html=True)
+    else:
+        section('DRIFT DETECTION')
+        st.success('No significant model drift detected across calibrated components.', icon='✅')
+
+    # ── Component calibration table ───────────────────────────────────────────
+    section('CALIBRATION FACTORS BY COMPONENT')
+    if cal_factors.empty:
+        st.info('Load observed events and select a field to compute calibration factors.')
+    else:
+        _cf_display = cal_factors[[
+            'display_name', 'mode_mttf', 'expected_failures',
+            'observed_failures', 'calibration_factor', 'confidence',
+            'effective_factor', 'recommended_mttf',
+        ]].copy()
+        _cf_display.columns = [
+            'Component', 'Mode MTTF (yr)', 'Expected Failures',
+            'Observed Failures', 'Calibration Factor', 'Confidence',
+            'Effective Factor', 'Recommended MTTF (yr)',
+        ]
+
+        def _style_row(row):
+            cf = row['Calibration Factor']
+            if pd.isna(cf) or cf is None:
+                return [''] * len(row)
+            if cf > 1.5:
+                return ['background-color:#1f0000;color:#fca5a5'] * len(row)
+            if cf < 0.5:
+                return ['background-color:#1f2a0a;color:#a3e635'] * len(row)
+            return [''] * len(row)
+
+        st.caption(
+            'Red rows: observed failures significantly exceed model expectations (optimistic assumptions). '
+            'Green rows: fewer failures than modelled (potentially conservative). '
+            'Confidence weights the effective factor — low counts have limited influence.'
+        )
+        st.dataframe(
+            _cf_display.style.apply(_style_row, axis=1).format({
+                'Mode MTTF (yr)':       '{:.0f}',
+                'Expected Failures':    '{:.1f}',
+                'Confidence':           '{:.0%}',
+                'Effective Factor':     '{:.3f}',
+                'Calibration Factor':   lambda x: f'{x:.3f}' if pd.notna(x) else '—',
+                'Recommended MTTF (yr)': '{:.0f}',
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    # ── Calibration factor chart ──────────────────────────────────────────────
+    if not cal_factors.empty:
+        _plot_df = cal_factors.dropna(subset=['calibration_factor']).copy()
+        if not _plot_df.empty:
+            _cf_fig = px.bar(
+                _plot_df.sort_values('calibration_factor', ascending=True),
+                x='calibration_factor',
+                y='display_name',
+                orientation='h',
+                color='calibration_factor',
+                color_continuous_scale=['#10b981', '#f59e0b', '#ef4444'],
+                color_continuous_midpoint=1.0,
+                labels={
+                    'calibration_factor': 'Calibration Factor (observed / expected)',
+                    'display_name': '',
+                },
+                title='Calibration factor by component — 1.0 = model matches observation',
+                text='calibration_factor',
+            )
+            _cf_fig.update_traces(texttemplate='%{text:.2f}', textposition='outside')
+            _cf_fig.add_vline(x=1.0, line_dash='dash', line_color='#94a3b8',
+                              annotation_text='Model prediction', annotation_position='top right')
+            _cf_fig.update_layout(
+                template='plotly_dark', height=420, showlegend=False,
+                paper_bgcolor='#111827', plot_bgcolor='#0f172a',
+                coloraxis_showscale=False,
+            )
+            st.plotly_chart(_cf_fig, use_container_width=True, key='cal_factor_bar')
+
+    # ── Recommended MTTF updates ──────────────────────────────────────────────
+    if not cal_factors.empty:
+        section('RECOMMENDED MTTF UPDATES')
+        _updated = cal_factors[
+            cal_factors['calibration_factor'].notna() &
+            (abs(cal_factors['effective_factor'] - 1.0) > 0.02)
+        ].copy()
+
+        if _updated.empty:
+            st.success('No MTTF updates recommended — calibration factors are within ±2% of 1.0.')
+        else:
+            st.caption(
+                'Components where the effective calibration factor deviates more than 2% from 1.0. '
+                'Select a field in the sidebar and rerun to apply these updates to the simulation.'
+            )
+            for _, row in _updated.sort_values('confidence', ascending=False).iterrows():
+                eff    = row['effective_factor']
+                delta  = (eff - 1.0) * 100
+                arrow  = '↓' if eff > 1.0 else '↑'
+                color  = 'red' if eff > 1.0 else 'green'
+                change = f'{abs(delta):.0f}%'
+                conf   = f'{row["confidence"]:.0%}'
+                st.markdown(
+                    f'**{row["display_name"]}**: P50 MTTF {row["mode_mttf"]:.0f} yr → '
+                    f'**{row["recommended_mttf"]:.0f} yr** ({arrow} {change}, confidence {conf}) · '
+                    f'Factor: {row["calibration_factor"]:.2f} effective: {eff:.3f}'
+                )
+
+    # ── Observed events log ───────────────────────────────────────────────────
+    section('OBSERVED FIELD EVENTS')
+    if observed_events.empty:
+        st.info('No observed events found. Append rows to `data/observations/observed_events.csv`.')
+    else:
+        _obs_show = observed_events.copy()
+        if _active_field:
+            _obs_show = _obs_show[_obs_show['field_id'] == _active_field]
+        st.caption(
+            f'{len(_obs_show)} events for **{_active_field or "all fields"}**. '
+            f'Append rows to `data/observations/observed_events.csv` to add new field history — '
+            f'calibration updates automatically on next simulation run.'
+        )
+        st.dataframe(_obs_show, use_container_width=True, hide_index=True)
+
+    # ── Calibration workflow ──────────────────────────────────────────────────
+    with st.expander('How the calibration workflow works', expanded=False):
+        st.markdown("""
+**Operational workflow:**
+
+1. A new intervention or inspection occurs in the field
+2. An engineer appends a row to `data/observations/observed_events.csv` (append-only)
+3. Select the field in the sidebar and re-run the simulation
+4. The **Calibration** tab updates automatically with new factors and alerts
+5. Calibration confidence increases as more events accumulate
+6. When confidence is sufficient, apply the recommended MTTF updates
+
+**Formula:**
+- `calibration_factor = observed_rate / expected_rate`
+- `confidence = min(observed_events / 20, 1.0)`
+- `effective_factor = 1 + confidence × (calibration_factor − 1)`
+- `calibrated_MTTF = base_MTTF / effective_factor`
+
+The confidence weighting prevents a single event from rewriting the entire assumption set.
+With 1 event, confidence = 5% — the calibrated MTTF shifts only 5% of the way toward the
+observed rate. With 20+ events, the field evidence fully overrides the literature assumption.
+        """)
 
 
 def _render_qa():
@@ -1487,6 +1779,10 @@ if 'economics' in T:
 if 'scenarios' in T:
     with T['scenarios']:
         _render_scenarios()
+
+if 'calibration' in T:
+    with T['calibration']:
+        _render_calibration()
 
 if 'qa' in T:
     with T['qa']:
