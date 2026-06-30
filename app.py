@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 
 from src.simulation import run_simulation
 from src.config_loader import (
@@ -233,6 +234,20 @@ with st.sidebar:
     st.caption('Asset Integrity & Intervention Planning')
     st.divider()
 
+    st.markdown('<div class="sb-section">👤 View Mode</div>', unsafe_allow_html=True)
+    view_mode = st.radio(
+        'View Mode',
+        options=['Executive', 'Engineering', 'Developer'],
+        index=1,
+        label_visibility='collapsed',
+        horizontal=True,
+        help=(
+            'Executive: KPI summary and scenario comparison — for managers and regulators.\n\n'
+            'Engineering: Full analysis including risk, campaigns, and assumptions — for well integrity and intervention engineers.\n\n'
+            'Developer: All engineering content plus model internals, calibration metrics, and raw distributions — for model validators and reliability engineers.'
+        ),
+    )
+
     st.markdown('<div class="sb-section">🏗 Asset Configuration</div>', unsafe_allow_html=True)
     n_wells = st.slider('Total Wells', 10, 500, 100, step=10)
     injector_pct = st.slider('Injectors (%)', 50, 95, 80, step=5)
@@ -261,16 +276,19 @@ with st.sidebar:
     intervention_threshold = threshold_pct / 100.0
     st.caption(f'Current threshold: **{threshold_pct}%** cumulative failure probability')
 
-    st.markdown('<div class="sb-section">🎛 Model Mode</div>', unsafe_allow_html=True)
-    model_mode = st.radio(
-        'Model Mode',
-        options=['Intervention Planning', 'Reliability Forecast'],
-        label_visibility='collapsed',
-        help=(
-            'Intervention Planning: full batching and deferred queue logic. '
-            'Reliability Forecast: pure component reliability view without scheduling constraints.'
-        ),
-    )
+    if view_mode != 'Executive':
+        st.markdown('<div class="sb-section">🎛 Model Mode</div>', unsafe_allow_html=True)
+        model_mode = st.radio(
+            'Model Mode',
+            options=['Intervention Planning', 'Reliability Forecast'],
+            label_visibility='collapsed',
+            help=(
+                'Intervention Planning: full batching and deferred queue logic. '
+                'Reliability Forecast: pure component reliability view without scheduling constraints.'
+            ),
+        )
+    else:
+        model_mode = 'Intervention Planning'
 
     st.markdown('<div class="sb-section">📡 Monitoring Program</div>', unsafe_allow_html=True)
     _MON_LABELS = {
@@ -471,21 +489,30 @@ scen_label = _SCENARIO_LABELS.get(params['scenario_id'], params['scenario_id'])
 fpm        = params.get('failure_prob_multiplier', 1.0)
 
 # ── Tab navigation ────────────────────────────────────────────────────────────
-tabs = st.tabs([
-    '📊  Executive Summary',
-    '📈  Lifecycle Forecast',
-    '⚠️  Risk & Failure Modes',
-    '🏗  Campaign Planning',
-    '💰  Economics',
-    '🔀  Scenario Comparison',
-    '🔬  Model QA',
-    '⚙️  Assumptions',
-])
+_ALL_TAB_DEFS = [
+    ('overview',    '📊  Overview'),
+    ('forecast',    '📈  Lifecycle Forecast'),
+    ('risk',        '⚠️  Risk & Failure Modes'),
+    ('campaigns',   '🏗  Campaign Planning'),
+    ('economics',   '💰  Economics'),
+    ('scenarios',   '🔀  Scenario Comparison'),
+    ('qa',          '🔬  Model QA'),
+    ('assumptions', '⚙️  Assumptions'),
+]
+_MODE_TABS = {
+    'Executive':   {'overview', 'scenarios'},
+    'Engineering': {'overview', 'forecast', 'risk', 'campaigns', 'economics', 'scenarios', 'assumptions'},
+    'Developer':   {t[0] for t in _ALL_TAB_DEFS},
+}
+_active_tabs  = [(k, lbl) for k, lbl in _ALL_TAB_DEFS if k in _MODE_TABS[view_mode]]
+_tab_objects  = st.tabs([lbl for _, lbl in _active_tabs])
+T = {k: obj for (k, _), obj in zip(_active_tabs, _tab_objects)}
 
 # ═════════════════════════════════════════════════════════════════════════════
-# TAB 1 — EXECUTIVE SUMMARY
+# TAB RENDER FUNCTIONS  (called inside  if 'key' in T: with T['key']:  below)
 # ═════════════════════════════════════════════════════════════════════════════
-with tabs[0]:
+
+def _render_overview():
     # ── Scenario header ───────────────────────────────────────────────────────
     scen_colors = {
         'base_case': '#3b82f6', 'conservative_design': '#10b981',
@@ -630,34 +657,33 @@ with tabs[0]:
               </p>
             </div>""", unsafe_allow_html=True)
 
-    # ── KPI Traceability ──────────────────────────────────────────────────────
-    section('KPI TRACEABILITY — WHY ARE THESE NUMBERS WHAT THEY ARE?')
-    component_assumptions_loaded = load_component_assumptions()
+    # ── KPI Traceability (Engineering / Developer only) ───────────────────────
+    if view_mode != 'Executive':
+        section('KPI TRACEABILITY — WHY ARE THESE NUMBERS WHAT THEY ARE?')
+        component_assumptions_loaded = load_component_assumptions()
 
-    with st.expander('What is driving the lifecycle cost?'):
-        lines = explain_cost_driver(contributions, component_assumptions_loaded, params)
-        for ln in lines:
-            st.markdown(ln)
+        with st.expander('What is driving the lifecycle cost?'):
+            lines = explain_cost_driver(contributions, component_assumptions_loaded, params)
+            for ln in lines:
+                st.markdown(ln)
 
-    with st.expander('Why is workover demand peaking when it does?'):
-        lines = explain_peak_demand(annual_forecast, failure_df, params)
-        for ln in lines:
-            st.markdown(ln)
+        with st.expander('Why is workover demand peaking when it does?'):
+            lines = explain_peak_demand(annual_forecast, failure_df, params)
+            for ln in lines:
+                st.markdown(ln)
 
-    with st.expander('Why does the model predict this many campaigns?'):
-        lines = explain_campaign_count(campaign_log, ls, params)
-        for ln in lines:
-            st.markdown(ln)
+        with st.expander('Why does the model predict this many campaigns?'):
+            lines = explain_campaign_count(campaign_log, ls, params)
+            for ln in lines:
+                st.markdown(ln)
 
-    with st.expander('Why is this component the highest risk?'):
-        lines = explain_highest_risk(highest_risk, contributions, component_assumptions_loaded, failure_df)
-        for ln in lines:
-            st.markdown(ln)
+        with st.expander('Why is this component the highest risk?'):
+            lines = explain_highest_risk(highest_risk, contributions, component_assumptions_loaded, failure_df)
+            for ln in lines:
+                st.markdown(ln)
 
-# ═════════════════════════════════════════════════════════════════════════════
-# TAB 2 — LIFECYCLE FORECAST
-# ═════════════════════════════════════════════════════════════════════════════
-with tabs[1]:
+
+def _render_forecast():
     # ── Fan chart with toggle ─────────────────────────────────────────────────
     section('WORKOVER DEMAND FORECAST')
     fan_mode = st.radio('View', ['Annual', 'Cumulative'],
@@ -691,10 +717,8 @@ with tabs[1]:
             fmt = {c: '{:.1f}' for c in annual_forecast.columns if c != 'year'}
             st.dataframe(annual_forecast.style.format(fmt), use_container_width=True)
 
-# ═════════════════════════════════════════════════════════════════════════════
-# TAB 3 — RISK & FAILURE MODES
-# ═════════════════════════════════════════════════════════════════════════════
-with tabs[2]:
+
+def _render_risk():
     # ── Risk matrix (flagship) ────────────────────────────────────────────────
     section('COMPONENT RISK MATRIX')
     col_rm, col_rs = st.columns([3, 2])
@@ -757,10 +781,56 @@ with tabs[2]:
             'probability estimate.'
         )
 
-# ═════════════════════════════════════════════════════════════════════════════
-# TAB 4 — CAMPAIGN PLANNING
-# ═════════════════════════════════════════════════════════════════════════════
-with tabs[3]:
+    # ── Developer additions ───────────────────────────────────────────────────
+    if view_mode == 'Developer':
+        section('DEVELOPER — SAMPLED MTTF DISTRIBUTION')
+        st.caption(
+            'Distribution of MTTF values drawn for each component across all simulations and wells. '
+            'Confirms the triangular P10/P90 distribution is being sampled correctly.'
+        )
+        _mttf_df = failure_df.drop_duplicates(['simulation_id', 'well_id', 'component'])[
+            ['component', 'sampled_mttf']
+        ]
+        if not _mttf_df.empty:
+            _mttf_fig = px.box(
+                _mttf_df, x='component', y='sampled_mttf', color='component',
+                labels={'sampled_mttf': 'Sampled MTTF (years)', 'component': ''},
+                title='Sampled MTTF per component — triangular P10/P90 draws',
+            )
+            _mttf_fig.update_layout(
+                template='plotly_dark', showlegend=False, height=400,
+                paper_bgcolor='#111827', plot_bgcolor='#0f172a',
+            )
+            st.plotly_chart(_mttf_fig, use_container_width=True, key='dev_mttf_box')
+
+        section('DEVELOPER — ADJUSTED FAILURE PROBABILITY vs OPERATING YEAR')
+        st.caption(
+            'Each point is one failure event. The upward trend in late years reflects the bathtub '
+            'curve wear-out phase. Sampled from up to 3,000 events for readability.'
+        )
+        _prob_sample = failure_df.sample(min(3000, len(failure_df)), random_state=42)
+        _prob_fig = px.scatter(
+            _prob_sample, x='year', y='adjusted_probability',
+            color='barrier_class', opacity=0.35,
+            labels={
+                'adjusted_probability': 'P(failure this year)',
+                'year': 'Operating year',
+                'barrier_class': 'Barrier class',
+            },
+            title='Adjusted failure probability vs operating year (3,000-event sample)',
+        )
+        _prob_fig.update_layout(
+            template='plotly_dark', height=400,
+            paper_bgcolor='#111827', plot_bgcolor='#0f172a',
+        )
+        st.plotly_chart(_prob_fig, use_container_width=True, key='dev_adj_prob')
+
+        section('DEVELOPER — RAW FAILURE EVENT LOG (FIRST 500 ROWS)')
+        st.caption('Download the complete log from the sidebar.')
+        st.dataframe(failure_df.head(500), use_container_width=True)
+
+
+def _render_campaigns():
     if campaign_log.empty:
         st.warning('No campaigns generated — try reducing the campaign threshold.')
     else:
@@ -808,10 +878,35 @@ with tabs[3]:
             )
             st.dataframe(stats, use_container_width=True)
 
-# ═════════════════════════════════════════════════════════════════════════════
-# TAB 5 — ECONOMICS
-# ═════════════════════════════════════════════════════════════════════════════
-with tabs[4]:
+        # ── Developer additions ───────────────────────────────────────────────
+        if view_mode == 'Developer':
+            section('DEVELOPER — IMMEDIATE vs DEFERRED BREAKDOWN BY COMPONENT')
+            _imm_def = (
+                failure_df
+                .groupby(['component', 'immediate_or_deferred'])
+                .size()
+                .reset_index(name='count')
+            )
+            if not _imm_def.empty:
+                _imm_fig = px.bar(
+                    _imm_def, x='component', y='count', color='immediate_or_deferred',
+                    barmode='stack',
+                    labels={'count': 'Events', 'component': '', 'immediate_or_deferred': 'Response type'},
+                    title='Immediate vs deferred events by component',
+                    color_discrete_map={'immediate': '#ef4444', 'deferred': '#3b82f6'},
+                )
+                _imm_fig.update_layout(
+                    template='plotly_dark', height=380,
+                    paper_bgcolor='#111827', plot_bgcolor='#0f172a',
+                )
+                st.plotly_chart(_imm_fig, use_container_width=True, key='dev_imm_def')
+
+            section('DEVELOPER — RAW CAMPAIGN LOG')
+            st.caption('Complete campaign_log output including all scheduling metadata.')
+            st.dataframe(campaign_log, use_container_width=True)
+
+
+def _render_economics():
     # ── Waterfall + distribution ──────────────────────────────────────────────
     section('COST BREAKDOWN')
     col1, col2 = st.columns(2)
@@ -867,10 +962,8 @@ with tabs[4]:
             'components (packer, tubing, cement barrier). See Model QA tab for full decomposition.'
         )
 
-# ═════════════════════════════════════════════════════════════════════════════
-# TAB 6 — SCENARIO COMPARISON
-# ═════════════════════════════════════════════════════════════════════════════
-with tabs[5]:
+
+def _render_scenarios():
     # ── Capture / clear buttons ───────────────────────────────────────────────
     col_a, col_b, col_c = st.columns([2, 2, 8])
     with col_a:
@@ -928,10 +1021,8 @@ with tabs[5]:
             fmt.update({c: '{:.0f}' for c in show if 'cost' not in c and c != 'scenario'})
             st.dataframe(comparison_df[show].style.format(fmt), use_container_width=True)
 
-# ═════════════════════════════════════════════════════════════════════════════
-# TAB 7 — MODEL QA
-# ═════════════════════════════════════════════════════════════════════════════
-with tabs[6]:
+
+def _render_qa():
     # ── Calibration Score ─────────────────────────────────────────────────────
     section('MODEL CALIBRATION SCORE')
     cs = calibration_score
@@ -1062,10 +1153,7 @@ with tabs[6]:
         st.dataframe(ct_stats, use_container_width=True)
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# TAB 8 — ASSUMPTIONS
-# ═════════════════════════════════════════════════════════════════════════════
-with tabs[7]:
+def _render_assumptions():
     # ── Assumption Quality Register ───────────────────────────────────────────
     section('ASSUMPTION QUALITY REGISTER')
     st.caption(
@@ -1209,6 +1297,41 @@ with tabs[7]:
 
     section('SCENARIO CONFIGURATION')
     st.dataframe(load_scenario_config(), use_container_width=True)
+
+
+# ── Tab dispatch ──────────────────────────────────────────────────────────────
+if 'overview' in T:
+    with T['overview']:
+        _render_overview()
+
+if 'forecast' in T:
+    with T['forecast']:
+        _render_forecast()
+
+if 'risk' in T:
+    with T['risk']:
+        _render_risk()
+
+if 'campaigns' in T:
+    with T['campaigns']:
+        _render_campaigns()
+
+if 'economics' in T:
+    with T['economics']:
+        _render_economics()
+
+if 'scenarios' in T:
+    with T['scenarios']:
+        _render_scenarios()
+
+if 'qa' in T:
+    with T['qa']:
+        _render_qa()
+
+if 'assumptions' in T:
+    with T['assumptions']:
+        _render_assumptions()
+
 
 # ── Sidebar downloads ─────────────────────────────────────────────────────────
 with st.sidebar:
