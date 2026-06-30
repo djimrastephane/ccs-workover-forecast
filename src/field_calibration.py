@@ -14,10 +14,16 @@ Hierarchy:
   Effective MTTF used in this simulation run
 
 Formula:
-  calibration_factor  = observed_rate / expected_rate
-  confidence          = min(n_observed / 20, 1.0)
-  effective_factor    = 1 + confidence × (calibration_factor − 1)
-  calibrated_MTTF     = base_MTTF / effective_factor
+  expected_failures  = Σ base_rate × bathtub_mult(t)  [summed over all well-years]
+  calibration_factor = observed_failures / expected_failures
+  confidence         = min(n_observed / 20, 1.0)
+  effective_factor   = 1 + confidence × (calibration_factor − 1)
+  calibrated_MTTF    = base_MTTF / effective_factor
+
+Bathtub weighting (via lifecycle_multiplier_vector) ensures the expected count
+reflects the actual lifecycle phase mix in the observation window, so the
+calibration factor corrects only for MTTF assumption error — not for infant
+mortality or wear-out effects that the simulation already models explicitly.
 
 The confidence-weighted effective_factor prevents a single observed event
 from rewriting the entire assumption set.
@@ -28,6 +34,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from pathlib import Path
+
+from .reliability_model import lifecycle_multiplier_vector
 
 _OBS_PATH = Path(__file__).parent.parent / 'data' / 'observations' / 'observed_events.csv'
 _CAL_DIR  = Path(__file__).parent.parent / 'data' / 'calibration'
@@ -57,15 +65,20 @@ def compute_calibration_factors(
     observed_events: pd.DataFrame,
     component_assumptions: pd.DataFrame,
     field_id: str | None = None,
+    field_design_life: int = 30,
 ) -> pd.DataFrame:
     """
     Compute per-component calibration factors for a given field.
 
-    Observed failure rate   = observed_failures / total_well_years
-    Expected failure rate   = 1 − exp(−1 / mode_MTTF)
-    Calibration factor      = observed_rate / expected_rate
-    Confidence              = min(observed_failures / 20, 1.0)
-    Effective factor        = 1 + confidence × (calibration_factor − 1)
+    Expected failures  = Σ base_rate × bathtub_mult(t)  [over all observed well-years]
+    Calibration factor = observed_failures / expected_failures
+    Confidence         = min(observed_failures / 20, 1.0)
+    Effective factor   = 1 + confidence × (calibration_factor − 1)
+
+    bathtub_mult(t) uses lifecycle_multiplier_vector(field_design_life) so that the
+    expected count reflects the actual lifecycle phase mix of the observation window.
+    The calibration factor therefore corrects only for MTTF assumption error, not for
+    infant-mortality or wear-out effects the simulation already applies.
 
     Returns one row per component in component_assumptions.
     """
@@ -78,7 +91,7 @@ def compute_calibration_factors(
     if obs.empty:
         return pd.DataFrame()
 
-    # Fleet exposure: sum of (last_event_year − install_year + 1) per well
+    # Fleet exposure: one row per well with its observation window
     well_info = obs.groupby('well_id').agg(
         install_year=('install_year', 'min'),
         last_event_year=('event_year', 'max'),
@@ -86,6 +99,17 @@ def compute_calibration_factors(
     well_info['well_years'] = well_info['last_event_year'] - well_info['install_year'] + 1
     n_wells_observed = len(well_info)
     total_well_years = float(well_info['well_years'].sum())
+
+    # Bathtub-weighted exposure: Σ bathtub_mult(t) across all observed well-years.
+    # This is component-agnostic — multiply by base_rate per component below.
+    lc = lifecycle_multiplier_vector(field_design_life)
+    bathtub_exposure = 0.0
+    for _, well in well_info.iterrows():
+        n_yrs = int(well['well_years'])
+        idxs  = np.arange(n_yrs)
+        # Clamp to design life; beyond it, use the final wear-out multiplier
+        mults = np.where(idxs < len(lc), lc[np.minimum(idxs, len(lc) - 1)], lc[-1])
+        bathtub_exposure += float(mults.sum())
 
     # Observed failure/degradation counts per component
     fail_mask = obs['event_type'].isin(_CALIBRABLE_EVENTS)
@@ -98,24 +122,20 @@ def compute_calibration_factors(
 
     rows: list[dict] = []
     for _, comp_row in component_assumptions.iterrows():
-        comp        = comp_row['component']
-        display     = comp_row['display_name']
-        P10         = float(comp_row['P10_MTTF'])
-        P90         = float(comp_row['P90_MTTF'])
-        mode_mttf   = (P10 + P90) / 2.0
+        comp      = comp_row['component']
+        display   = comp_row['display_name']
+        P10       = float(comp_row['P10_MTTF'])
+        P90       = float(comp_row['P90_MTTF'])
+        mode_mttf = (P10 + P90) / 2.0
 
-        expected_rate     = 1.0 - np.exp(-1.0 / mode_mttf)
-        expected_failures = expected_rate * total_well_years
+        base_rate         = 1.0 - np.exp(-1.0 / mode_mttf)
+        expected_failures = base_rate * bathtub_exposure
 
         n_obs = obs_counts.get(comp, 0)
 
-        if n_obs > 0 and expected_failures > 0:
-            obs_rate           = n_obs / total_well_years
-            calibration_factor = obs_rate / expected_rate
-        else:
-            calibration_factor = None
+        calibration_factor = (n_obs / expected_failures) if (n_obs > 0 and expected_failures > 0) else None
 
-        confidence      = min(n_obs / 20.0, 1.0)
+        confidence       = min(n_obs / 20.0, 1.0)
         effective_factor = (
             1.0 + confidence * (calibration_factor - 1.0)
             if calibration_factor is not None else 1.0
@@ -127,7 +147,7 @@ def compute_calibration_factors(
             'component':           comp,
             'display_name':        display,
             'mode_mttf':           round(mode_mttf, 1),
-            'expected_failures':   round(expected_failures, 1),
+            'expected_failures':   round(expected_failures, 2),
             'observed_failures':   n_obs,
             'calibration_factor':  round(calibration_factor, 3) if calibration_factor is not None else None,
             'confidence':          round(confidence, 3),
@@ -135,6 +155,7 @@ def compute_calibration_factors(
             'recommended_mttf':    round(recommended_mttf, 1),
             'n_wells_observed':    n_wells_observed,
             'total_well_years':    round(total_well_years, 1),
+            'bathtub_exposure':    round(bathtub_exposure, 1),
         })
 
     return pd.DataFrame(rows)
