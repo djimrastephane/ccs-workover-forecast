@@ -2575,27 +2575,35 @@ def _render_journey():
         _dp_row   = _wt.iloc[_dp_idx]
         _dp_nodes = build_decision_path(_dp_row)
 
-        _dp_html_parts = []
         for _ni, _node in enumerate(_dp_nodes):
-            _dp_html_parts.append(f"""
-            <div style="display:flex;flex-direction:column;align-items:center;margin:.15rem 0;">
-              <div style="border:2px solid {_node['color']};border-radius:8px;padding:.5rem 1.2rem;
-                          min-width:300px;max-width:480px;background:#111827;text-align:center;">
-                <div style="font-size:.62rem;color:#64748b;text-transform:uppercase;
-                            letter-spacing:.08em;">{_node['label']}</div>
-                <div style="font-size:.95rem;font-weight:700;color:{_node['color']};
-                            margin:.15rem 0;">{_node['value']}</div>
-                {('<div style="font-size:.7rem;color:#94a3b8;">' + _node['detail'] + '</div>') if _node.get('detail') else ''}
-                {('<div style="font-size:.68rem;font-weight:700;color:' + _node['color'] + ';margin-top:.15rem;">' + _node['outcome'] + '</div>') if _node.get('outcome') else ''}
-              </div>
-              {('<div style="color:#475569;font-size:1.1rem;line-height:1.2;">↓</div>') if _ni < len(_dp_nodes) - 1 else ''}
-            </div>
-            """)
-        st.markdown(
-            f'<div style="display:flex;flex-direction:column;align-items:center;'
-            f'padding:1rem 0;">{"".join(_dp_html_parts)}</div>',
-            unsafe_allow_html=True,
-        )
+            _nc = _node['color']
+            _detail_html  = (
+                f'<div style="font-size:.7rem;color:#94a3b8;margin-top:.1rem;">'
+                f'{_node["detail"]}</div>'
+            ) if _node.get('detail') else ''
+            _outcome_html = (
+                f'<div style="font-size:.68rem;font-weight:700;color:{_nc};margin-top:.15rem;">'
+                f'{_node["outcome"]}</div>'
+            ) if _node.get('outcome') else ''
+            _, _mid, _ = st.columns([1, 2, 1])
+            with _mid:
+                st.markdown(
+                    f'<div style="border:2px solid {_nc};border-radius:8px;'
+                    f'padding:.5rem 1.2rem;background:#111827;text-align:center;">'
+                    f'<div style="font-size:.62rem;color:#64748b;text-transform:uppercase;'
+                    f'letter-spacing:.08em;">{_node["label"]}</div>'
+                    f'<div style="font-size:.95rem;font-weight:700;color:{_nc};'
+                    f'margin:.15rem 0;">{_node["value"]}</div>'
+                    f'{_detail_html}{_outcome_html}'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                if _ni < len(_dp_nodes) - 1:
+                    st.markdown(
+                        '<div style="text-align:center;color:#475569;'
+                        'font-size:1.1rem;line-height:1.8;">↓</div>',
+                        unsafe_allow_html=True,
+                    )
 
 
 # ── Tab dispatch ──────────────────────────────────────────────────────────────
