@@ -137,7 +137,7 @@ jobs:
 
           def p50_cost(scenario):
               _, _, _, ls, _ = run_simulation(
-                  n_simulations=50, n_injectors=8, n_monitoring=2,
+                  n_simulations=200, n_injectors=20, n_monitoring=5,
                   operating_years=20, scenario_id=scenario, seed=42,
               )
               return ls['p50_lifecycle_cost']
@@ -146,9 +146,12 @@ jobs:
           base         = p50_cost('base_case')
           high_corr    = p50_cost('high_corrosion')
 
+          # conservative_design: 0.6x failures * 1.1x cost = 0.66x expected cost vs base.
+          # With a 25-well fleet and 200 simulations this gap is reliably detectable.
           assert conservative < base, (
               f'Conservative ({conservative:.0f}) should cost less than base ({base:.0f})'
           )
+          # base vs high_corrosion: 1.0x vs 1.8x failures * 1.3x cost = 2.34x — very large gap.
           assert base < high_corr, (
               f'Base ({base:.0f}) should cost less than high corrosion ({high_corr:.0f})'
           )
