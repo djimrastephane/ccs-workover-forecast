@@ -40,7 +40,7 @@ Then open http://localhost:8501 in your browser.
 
 ```
 ccs-workover-forecast/
-├── app.py                          # Streamlit dashboard (9 tabs)
+├── app.py                          # Streamlit dashboard (11 tabs)
 ├── requirements.txt
 ├── data/
 │   ├── assumptions/
@@ -102,6 +102,7 @@ flowchart TD
         O2["Campaign schedule\nTiming, size and cost of each workover campaign"]
         O3["Annual cost profile\nYear-by-year spend distribution across all scenarios"]
         O4["Lifecycle summary\nP10 · P50 · P90 total cost, workovers, and peak annual demand"]
+        O5["Campaign event map\nLinks each failure event to its campaign ID\nUsed by Simulation Trace and Well Journey tabs"]
     end
 
     APP["Dashboard\nWorkover fan charts · risk matrix · campaign Gantt\nlifecycle economics · asset health · model QA\nAll results downloadable as CSV"]
@@ -109,9 +110,10 @@ flowchart TD
     INPUTS --> S1 --> S2 --> S3 --> S4 --> S5
     S3 -.->|failure events| O1
     S4 -.->|campaign log| O2
+    S4 -.->|event→campaign map| O5
     S5 -.->|annual costs| O3
     S5 -.->|lifecycle summary| O4
-    O1 & O2 & O3 & O4 --> APP
+    O1 & O2 & O3 & O4 & O5 --> APP
 ```
 
 **Reading the outputs — what P10 / P50 / P90 means:**
@@ -286,7 +288,7 @@ Then select the field in the sidebar **Reference Field** selector. The model aut
 
 ### Scenario configuration
 
-`scenario_config.csv` — five built-in scenarios with failure probability and cost multipliers.
+`scenario_config.csv` — six built-in scenarios with failure probability and cost multipliers.
 
 | Scenario | Failure multiplier | Cost multiplier | Notes |
 |---|---|---|---|
@@ -306,14 +308,21 @@ Then select the field in the sidebar **Reference Field** selector. The model aut
 | Executive Summary | KPI cards (P50/P90 workovers, lifecycle cost, peak demand, threshold split), asset health index, KPI traceability expanders, executive narrative | All |
 | Lifecycle Forecast | Annual P10/P50/P90 workover fan chart, bathtub curve with phase annotations, cost fan chart | Engineering, Developer |
 | Risk & Failure Modes | 5×5 risk matrix, component lifecycle failure probability heatmap, cost contribution breakdown, risk traceability | Engineering, Developer |
-| Campaign Planning | Bubble Gantt across sample simulations, deferred queue evolution, immediate vs deferred split | Engineering, Developer |
+| Campaign Planning | Bubble Gantt across sample simulations, deferred queue evolution, immediate vs deferred split, campaign story | Engineering, Developer |
 | Economics | Waterfall cost breakdown, lifecycle cost distribution, cost by component, cost traceability | Engineering, Developer |
-| Scenario Comparison | Side-by-side comparison of multiple scenario runs | Engineering, Developer |
-| Field Calibration | Reliability maturity score; per-component calibration factors (observed vs expected rate); drift alerts; recommended MTTF updates; observed event log; OREDA HC-service limitation workflow | Engineering, Developer |
-| Model QA | Calibration score, assumption quality register, critical calibration gaps, MTTF uncertainty tornado, validation metrics, sanity checks, campaign type breakdown | Engineering, Developer |
-| Assumptions | Live view of all CSV assumption tables with quality register and engineering defensibility panel | Engineering, Developer |
+| Scenario Comparison | Side-by-side comparison of multiple scenario runs | Executive, Engineering, Developer |
+| Field Calibration | Reliability maturity score; per-component calibration factors (observed vs expected rate); drift alerts; recommended MTTF updates; observed event log; OREDA HC-service limitation workflow | Engineering, Reviewer, Developer |
+| Model QA | Calibration score, assumption quality register, critical calibration gaps, MTTF uncertainty tornado, validation metrics, sanity checks, campaign type breakdown | Engineering, Reviewer, Developer |
+| Assumptions | Live view of all CSV assumption tables with quality register and engineering defensibility panel | Engineering, Reviewer, Developer |
+| Simulation Trace | Full decision audit — Bernoulli draws, detection events, campaign assignments; worst year explainability; per-event audit table | Engineering, Reviewer, Developer |
+| Well Journey | Per-well event timeline, component health chart, decision path flowchart for any selected event | Engineering, Reviewer, Developer |
 
-The view mode selector (Executive / Engineering / Developer) in the sidebar controls tab visibility. Executive shows Overview only. Developer adds the peak intervention calendar year narrative and additional diagnostic detail.
+The view mode selector (Executive / Engineering / Reviewer / Developer) in the sidebar controls tab visibility:
+
+- **Executive** — Overview and Scenario Comparison. For managers and regulators.
+- **Engineering** — Full analysis including risk, campaigns, well journeys, and assumptions. For well integrity and intervention engineers.
+- **Reviewer** — Assumptions, calibration, QA, and full audit trail. For technical reviewers who need to challenge every model decision.
+- **Developer** — All engineering content plus model internals, calibration metrics, raw distributions, and diagnostic drill-downs. For model validators and reliability engineers.
 
 ---
 
