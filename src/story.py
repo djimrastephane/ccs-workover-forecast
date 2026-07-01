@@ -7,6 +7,7 @@ decision paths, component health series, and Sankey flow data.
 All functions are pure consumers of existing simulation outputs.
 No new simulation logic; no new probability calculations.
 """
+import os as _os
 import pandas as pd
 
 # ── Display constants ─────────────────────────────────────────────────────────
@@ -54,6 +55,62 @@ def _fmt_cost(v) -> str:
     return f'${v:.0f}'
 
 
+# ── Rejuvenation rules ────────────────────────────────────────────────────────
+
+def _load_rejuvenation_rules() -> pd.DataFrame:
+    """Load rejuvenation_rules.csv; return empty DataFrame if not found."""
+    path = _os.path.normpath(
+        _os.path.join(_os.path.dirname(__file__), '..', 'data', 'assumptions', 'rejuvenation_rules.csv')
+    )
+    try:
+        return pd.read_csv(path)
+    except FileNotFoundError:
+        return pd.DataFrame(columns=[
+            'component', 'intervention_type', 'rejuvenation_factor', 'post_intervention_health_cap'
+        ])
+
+
+def _post_intervention_health(
+    health_pre: float,
+    comp: str,
+    interv_type: str,
+    rejuv_df: pd.DataFrame,
+) -> float:
+    """
+    Compute post-intervention health using component-specific rejuvenation factor.
+    rejuvenation_factor=0.0 → repaired to as-new (full restoration).
+    rejuvenation_factor=1.0 → repaired to as-old (no health gain).
+    """
+    if rejuv_df is None or rejuv_df.empty:
+        return 100.0
+    mask = (rejuv_df['component'] == comp) & (rejuv_df['intervention_type'] == interv_type)
+    if not mask.any():
+        mask = rejuv_df['component'] == comp
+    if not mask.any():
+        return 100.0
+    rule = rejuv_df[mask].iloc[0]
+    rf  = float(rule['rejuvenation_factor'])
+    cap = float(rule['post_intervention_health_cap'])
+    # Linear interpolation between pre-health (rf=1) and 100% (rf=0)
+    restored = health_pre + (1.0 - rf) * (100.0 - health_pre)
+    return round(min(cap, restored), 1)
+
+
+# Components where full_workover is required by design (not escalation)
+_INHERENTLY_WORKOVER_NOTE = {
+    'fiber_optics':  'Fiber optic cable is installed with the tubing string — retrieval requires a full rig workover by design.',
+    'control_line':  'Hydraulic control line runs with the tubing string — replacement requires a full tubing pull.',
+    'tubing_hanger': 'Tubing hanger seal access requires retrieving the full tubing string.',
+}
+
+_BARRIER_DRIVER_MAP = {
+    'safety':         'Safety barrier integrity',
+    'production':     'Production barrier lifecycle',
+    'monitoring':     'Monitoring sensor availability',
+    'flow_assurance': 'Flow assurance / injectivity',
+}
+
+
 # ── Event Story Card ──────────────────────────────────────────────────────────
 
 def build_event_story_card(row: pd.Series) -> dict:
@@ -62,6 +119,7 @@ def build_event_story_card(row: pd.Series) -> dict:
     Returns a dict of text fields ready for UI rendering.
     """
     comp     = str(row.get('display_name', row.get('component', 'Unknown')))
+    comp_key = str(row.get('component', ''))
     year_f   = int(row.get('year_of_field_life', 0))
     cal_yr   = int(row.get('calendar_year', year_f))
     barrier  = str(row.get('barrier_class', ''))
@@ -70,6 +128,7 @@ def build_event_story_card(row: pd.Series) -> dict:
     detected = bool(row.get('detected', False))
     thresh   = bool(row.get('threshold_triggered', False))
     interv   = str(row.get('intervention_type', ''))
+    escalated = bool(row.get('escalated', False))
     draw     = row.get('bernoulli_draw')
     fp       = row.get('annual_failure_probability')
     cum_fp   = row.get('cumulative_failure_probability')
@@ -89,8 +148,8 @@ def build_event_story_card(row: pd.Series) -> dict:
         )
     elif fail_occ and detected:
         what = (
-            f"{comp} experienced a functional failure that was caught by the monitoring programme "
-            "before it escalated. The event was reclassified as a planned intervention, "
+            f"Monitoring detected early-stage degradation in {comp} before functional failure. "
+            "The event was reclassified from reactive to a planned intervention, "
             "reducing response cost by 20%."
         )
     elif fail_occ and not detected:
@@ -155,6 +214,15 @@ def build_event_story_card(row: pd.Series) -> dict:
             "(non-safety barrier, non-deferrable by barrier hierarchy)."
         )
 
+    # ── Intervention type context note ────────────────────────────────────────
+    interv_note = ''
+    if interv == 'full_workover' and comp_key in _INHERENTLY_WORKOVER_NOTE:
+        interv_note = _INHERENTLY_WORKOVER_NOTE[comp_key]
+    elif interv == 'full_workover' and comp_key == 'injectivity':
+        interv_note = (
+            'Escalated from rigless to full workover (repeat flow-assurance failure on this well).'
+        )
+
     # ── Campaign summary ───────────────────────────────────────────────────────
     camp_str = str(campaign) if campaign is not None else ''
     if camp_str and camp_str not in ('nan', '<NA>', 'None', ''):
@@ -186,9 +254,10 @@ def build_event_story_card(row: pd.Series) -> dict:
         'cost':           _fmt_cost(cost),
         'downtime':       dt_str,
         'intervention':   INTERV_LABEL.get(interv, interv.replace('_', ' ').title()),
-        'thresh':         thresh,
-        'fail_occ':       fail_occ,
-        'detected':       detected,
+        'thresh':            thresh,
+        'fail_occ':          fail_occ,
+        'detected':          detected,
+        'intervention_note': interv_note,
     }
 
 
@@ -356,8 +425,11 @@ def build_well_journey(
     if wt.empty:
         return {}
 
+    rejuv_df     = _load_rejuvenation_rules()
     story_cards  = [build_event_story_card(row) for _, row in wt.iterrows()]
-    health_df    = _build_health_series(wt, operating_years, first_injection_year)
+    health_df    = _build_health_series(wt, operating_years, first_injection_year, rejuv_df)
+    cfact_df     = _build_counterfactual_health(wt, operating_years, first_injection_year)
+    rul_df       = _build_rul_table(wt, health_df, first_injection_year, operating_years)
 
     has_cost = 'intervention_cost' in wt.columns
     has_dt   = 'downtime_days'     in wt.columns
@@ -384,19 +456,21 @@ def build_well_journey(
     )
 
     return {
-        'sim_id':          sim_id,
-        'well_id':         well_id,
-        'wt':              wt,
-        'story_cards':     story_cards,
-        'health_df':       health_df,
-        'cost_by_year':    cost_by_year,
-        'n_interventions': len(wt),
-        'n_reactive':      n_reactive,
-        'n_preventive':    n_preventive,
-        'n_emergency':     n_emergency,
-        'total_cost':      total_cost,
-        'total_downtime':  total_downtime,
-        'peak_cost_year':  peak_cost_yr,
+        'sim_id':                   sim_id,
+        'well_id':                  well_id,
+        'wt':                       wt,
+        'story_cards':              story_cards,
+        'health_df':                health_df,
+        'counterfactual_health_df': cfact_df,
+        'rul_df':                   rul_df,
+        'cost_by_year':             cost_by_year,
+        'n_interventions':          len(wt),
+        'n_reactive':               n_reactive,
+        'n_preventive':             n_preventive,
+        'n_emergency':              n_emergency,
+        'total_cost':               total_cost,
+        'total_downtime':           total_downtime,
+        'peak_cost_year':           peak_cost_yr,
     }
 
 
@@ -404,12 +478,14 @@ def _build_health_series(
     wt: pd.DataFrame,
     operating_years: int,
     first_injection_year: int,
+    rejuvenation_rules=None,
 ) -> pd.DataFrame:
     """
     Build component health % evolution from trace data.
 
     Health at each event year = (1 - cumulative_failure_probability) × 100.
-    After each intervention the component is restored to 100%.
+    After each intervention the component is restored using component-specific
+    rejuvenation factors (not always 100%).
     Between known points the series is linearly interpolated for readability.
     This is a visualisation of existing reliability data, not new physics.
     """
@@ -435,7 +511,9 @@ def _build_health_series(
                 health_pre = max(0.0, anchors[-1][1] - 3.0)
 
             anchors.append((yr, health_pre))
-            anchors.append((yr + 0.3, 100.0))   # post-intervention restoration
+            interv_t = str(ev.get('intervention_type', ''))
+            post_h = _post_intervention_health(health_pre, comp, interv_t, rejuvenation_rules)
+            anchors.append((yr + 0.3, post_h))
 
         # Extend to end of life with gentle decay
         last_yr, last_h = anchors[-1]
@@ -451,6 +529,126 @@ def _build_health_series(
                 'calendar_year':      first_injection_year + yr_f - 1,
                 'health_pct':         round(h, 1),
             })
+
+    return pd.DataFrame(rows)
+
+
+# ── Counterfactual health (no-intervention scenario) ─────────────────────────
+
+def _build_counterfactual_health(
+    wt: pd.DataFrame,
+    operating_years: int,
+    first_injection_year: int,
+) -> pd.DataFrame:
+    """
+    Illustrative health path if no interventions had ever occurred.
+    Health degrades from each failure event without any post-intervention recovery.
+    Labelled 'Illustrative counterfactual — not a re-simulation.'
+    """
+    if 'cumulative_failure_probability' not in wt.columns:
+        return pd.DataFrame()
+
+    components = wt['component'].unique()
+    rows = []
+
+    for comp in components:
+        ce = wt[wt['component'] == comp].sort_values('year_of_field_life')
+        display = str(ce['display_name'].iloc[0]) if 'display_name' in ce.columns else comp
+
+        anchors = [(0.0, 100.0)]
+        last_pre = 100.0
+
+        for _, ev in ce.iterrows():
+            yr = float(ev['year_of_field_life'])
+            try:
+                cf = float(ev['cumulative_failure_probability'])
+                # Counterfactual cumulative probability relative to no-intervention start
+                health_pre = max(0.0, (1.0 - cf) * last_pre) if not pd.isna(cf) else max(0.0, last_pre - 3.0)
+            except (TypeError, ValueError):
+                health_pre = max(0.0, last_pre - 3.0)
+            anchors.append((yr, health_pre))
+            last_pre = health_pre   # no recovery — stay at degraded level
+
+        last_yr, last_h = anchors[-1]
+        if last_yr < operating_years:
+            end_h = max(0.0, last_h - (operating_years - last_yr) * 1.5)
+            anchors.append((float(operating_years), end_h))
+
+        for yr_f, h in anchors:
+            rows.append({
+                'component':          comp,
+                'display_name':       display,
+                'year_of_field_life': yr_f,
+                'calendar_year':      first_injection_year + yr_f - 1,
+                'health_pct':         round(h, 1),
+            })
+
+    return pd.DataFrame(rows)
+
+
+# ── Remaining Useful Life table ───────────────────────────────────────────────
+
+def _build_rul_table(
+    wt: pd.DataFrame,
+    health_df: pd.DataFrame,
+    first_injection_year: int,
+    operating_years: int,
+) -> pd.DataFrame:
+    """
+    Build a per-component Remaining Useful Life (RUL) table.
+    Estimates are approximate — based on last observed annual failure probability,
+    not a re-simulation. Clearly labelled as indicative.
+    """
+    if wt.empty or health_df.empty:
+        return pd.DataFrame()
+
+    rows = []
+    for comp in wt['component'].unique():
+        comp_wt  = wt[wt['component'] == comp].sort_values('year_of_field_life')
+        comp_hdf = health_df[health_df['component'] == comp].sort_values('year_of_field_life')
+
+        display = str(comp_wt['display_name'].iloc[0]) if 'display_name' in comp_wt.columns else comp
+        barrier = str(comp_wt['barrier_class'].iloc[0]) if 'barrier_class' in comp_wt.columns else ''
+
+        last_ev = comp_wt.iloc[-1]
+        last_yr_f = int(last_ev['year_of_field_life'])
+        last_yr_c = first_injection_year + last_yr_f - 1
+
+        # Post-last-intervention health: first anchor point after (last_yr_f + 0.1)
+        post_int = comp_hdf[comp_hdf['year_of_field_life'] > last_yr_f + 0.1]
+        if not post_int.empty:
+            current_health = float(post_int.iloc[0]['health_pct'])
+        elif not comp_hdf.empty:
+            current_health = float(comp_hdf.iloc[-1]['health_pct'])
+        else:
+            current_health = 70.0
+
+        # Approximate RUL using last annual failure probability
+        try:
+            last_fp = float(last_ev.get('annual_failure_probability', 0.05))
+            if pd.isna(last_fp) or last_fp <= 0:
+                last_fp = 0.05
+        except (TypeError, ValueError):
+            last_fp = 0.05
+
+        if current_health > 60.0:
+            annual_health_loss = max(0.5, last_fp * 100.0)
+            rul_years = (current_health - 60.0) / annual_health_loss
+            rul_years = round(min(rul_years, float(operating_years - last_yr_f)), 1)
+        else:
+            rul_years = 0.0
+
+        next_risk_f = last_yr_f + max(1, int(rul_years))
+        next_risk_c = first_injection_year + next_risk_f - 1
+
+        rows.append({
+            'Component':            display,
+            'Current Health':       f'{current_health:.0f}%',
+            'Last Intervention':    f'Yr {last_yr_f} ({last_yr_c})',
+            'Est. RUL (yrs)':       rul_years if rul_years > 0 else '<1',
+            'Next Risk Window':     f'Yr {next_risk_f} ({next_risk_c})',
+            'Primary Driver':       _BARRIER_DRIVER_MAP.get(barrier, barrier.replace('_', ' ').title()),
+        })
 
     return pd.DataFrame(rows)
 

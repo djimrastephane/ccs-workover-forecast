@@ -1,0 +1,17 @@
+component,intervention_type,rejuvenation_factor,post_intervention_health_cap,source,confidence,notes
+tubing,full_workover,0.0,100,SPE-232388-MS Table 3,medium,New tubing string — restoration to as-new
+packer,full_workover,0.1,98,SPE-232388-MS Table 3,medium,Replacement packer; residual thermal aging in cement above
+gauge,rigless_intervention,0.0,100,operator standard,high,Electronic unit replaced; sensor fully restored
+fiber_optics,full_workover,0.05,100,operator standard,medium,Cable replaced with tubing string; near-new condition
+wellhead,light_intervention,0.3,90,NORSOK D-001,medium,Sealing elements replaced; body fatigue cycle count unchanged
+tree,light_intervention,0.3,90,NORSOK D-001,medium,Valve seats/seals replaced; body service history retained
+cement_barrier,full_workover,0.4,85,IEAGHG 2011 FMEA,low,Squeeze/remediation — partial channel healing; porous matrix remains
+casing,full_workover,0.5,80,ISO 11960,low,Patch repair — corroded zone bypassed but not replaced
+injectivity,rigless_intervention,0.0,100,operator standard,high,Flow restoration via chemical or mechanical treatment — as-new injectivity
+injectivity,full_workover,0.0,100,operator standard,high,Full access for scale removal / perforation re-gun — fully restored
+trsv,rigless_intervention,0.2,95,API 11D1,high,TRSV refurbishment on wireline; minor residual spring fatigue
+ssv,rigless_intervention,0.1,98,API 6A,high,Surface replacement unit — near-new condition
+casing_valve,light_intervention,0.2,92,API 6A,medium,Valve reseat; body and bore retained
+control_line,full_workover,0.05,100,operator standard,medium,New hydraulic control line installed with tubing; near-new
+tubing_hanger,full_workover,0.1,95,API 17D,medium,Seal replacement; hanger body retained
+injection_flowmeter,rigless_intervention,0.0,100,operator standard,high,Instrument swap; fully restored to as-new accuracy

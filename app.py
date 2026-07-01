@@ -2435,6 +2435,30 @@ def _render_journey():
     </div>
     """, unsafe_allow_html=True)
 
+    # ── Engineering notes ─────────────────────────────────────────────────────
+    with st.expander('Engineering Notes', expanded=False):
+        st.markdown("""
+**What this view shows**
+
+A single Monte Carlo simulation run for one well. Results are stochastic — a different simulation run may produce a different event sequence. Use the portfolio-level tabs for statistically stable P10/P50/P90 estimates.
+
+**Component health**
+
+Health = (1 − cumulative failure probability) × 100. Post-intervention health reflects component-specific rejuvenation factors, not a blanket reset to 100%. Cement barriers and casing are capped below 100% because squeeze/patch repairs leave residual degradation. Rigless-intervention components (gauges, SSV, meters) are restored to near-100%.
+
+**Remaining Useful Life (RUL)**
+
+Estimated from the last observed annual failure probability on this simulation run. This is an indicative planning figure — not a re-simulation. Treat it as the approximate time window before the next intervention becomes likely at current degradation rates.
+
+**Counterfactual view**
+
+Shows the illustrative health trajectory if no interventions had ever been performed. Computed by propagating pre-intervention degradation forward without any health resets. This is **not** a re-simulation — it extrapolates existing reliability data for illustrative comparison only. Label: "Illustrative counterfactual — not a re-simulation."
+
+**Calendar years**
+
+Derived from the configured First Injection Year in the sidebar. Both field-life year (Yr N) and calendar year (CY YYYY) are shown throughout. If dates appear incorrect, verify the injection start year.
+        """)
+
     if simulation_trace.empty:
         st.info('Run the simulation to explore well journeys.')
         return
@@ -2448,16 +2472,38 @@ def _render_journey():
         _j_sims = sorted(simulation_trace['simulation_id'].unique().tolist())[:50]
         _j_sim  = st.selectbox('Simulation Run', _j_sims, key='journey_sim')
 
+    _first_yr = int(params['first_injection_year'])
+    _op_yrs   = int(params['operating_years'])
+
     _jd = build_well_journey(
         simulation_trace, campaign_log,
         int(_j_sim), str(_j_well),
-        int(params['first_injection_year']),
-        int(params['operating_years']),
+        _first_yr, _op_yrs,
     )
 
     if not _jd:
         st.warning(f'No events recorded for {_j_well} in simulation {_j_sim}.')
         return
+
+    # ── Validation checks ─────────────────────────────────────────────────────
+    _wt_v = _jd['wt']
+    if 'calendar_year' in _wt_v.columns and 'year_of_field_life' in _wt_v.columns:
+        _expected_cal = _wt_v['year_of_field_life'] + _first_yr - 1
+        if not (_wt_v['calendar_year'] == _expected_cal).all():
+            st.warning(
+                'Calendar year formula inconsistency detected in trace data. '
+                'Verify the First Injection Year in the sidebar.'
+            )
+    _inj_wo_mask = (
+        (_wt_v['component'] == 'injectivity') & (_wt_v['intervention_type'] == 'full_workover')
+        if not _wt_v.empty else pd.Series(dtype=bool)
+    )
+    if _inj_wo_mask.any():
+        _n_inj_wo = int(_inj_wo_mask.sum())
+        st.info(
+            f'Note: Injectivity shows full workover for {_n_inj_wo} event(s) on this well — '
+            'escalated from rigless due to repeat flow-assurance failures (by design).'
+        )
 
     # ── Summary KPIs ──────────────────────────────────────────────────────────
     section('WELL SUMMARY')
@@ -2472,26 +2518,64 @@ def _render_journey():
     section('COMPONENT HEALTH EVOLUTION')
     st.caption(
         'Health = (1 − cumulative failure probability) × 100. '
-        'Restored to 100% after each intervention. '
+        'Post-intervention health uses component-specific rejuvenation factors — not always 100%. '
         'Between events the curve is linearly interpolated — indicative only.'
     )
+    _show_cfact = st.toggle(
+        'Show counterfactual (what if no interventions?)', value=False, key='journey_cfact_toggle'
+    )
+    if _show_cfact:
+        st.caption(
+            ':orange[Illustrative counterfactual — not a re-simulation. '
+            'Dashed lines show extrapolated degradation without any intervention resets.]'
+        )
     _hdf = _jd['health_df']
     if not _hdf.empty:
         _hfig = _px_j.line(
             _hdf, x='year_of_field_life', y='health_pct', color='display_name',
-            labels={'year_of_field_life': 'Year of Field Life',
+            labels={'year_of_field_life': 'Field Life Year',
                     'health_pct': 'Component Health (%)', 'display_name': 'Component'},
+            custom_data=['calendar_year'],
             template='plotly_dark',
         )
+        _hfig.update_traces(
+            hovertemplate='Yr %{x:.0f} (CY %{customdata[0]:.0f})<br>Health: %{y:.1f}%<extra></extra>'
+        )
+        if _show_cfact:
+            _cfdf = _jd.get('counterfactual_health_df', pd.DataFrame())
+            if not _cfdf.empty:
+                for _cn in _cfdf['display_name'].unique():
+                    _cf_c = _cfdf[_cfdf['display_name'] == _cn]
+                    _hfig.add_trace(_go_j.Scatter(
+                        x=_cf_c['year_of_field_life'], y=_cf_c['health_pct'],
+                        mode='lines',
+                        line=dict(dash='dash', width=1),
+                        name=f'{_cn} (no intervention)',
+                        opacity=0.45,
+                        showlegend=True,
+                        customdata=_cf_c[['calendar_year']].values,
+                        hovertemplate=(
+                            'Yr %{x:.0f} (CY %{customdata[0]:.0f})<br>'
+                            'Health (no interv.): %{y:.1f}%<extra></extra>'
+                        ),
+                    ))
         _hfig.add_hline(y=80, line_dash='dot', line_color='#f59e0b',
                         annotation_text='Warning (80%)', annotation_font_size=10)
         _hfig.add_hline(y=60, line_dash='dot', line_color='#ef4444',
                         annotation_text='Critical (60%)', annotation_font_size=10)
+        _tick_yrs = list(range(1, _op_yrs + 1, 5))
+        if _op_yrs not in _tick_yrs:
+            _tick_yrs.append(_op_yrs)
+        _hfig.update_xaxes(
+            tickmode='array',
+            tickvals=_tick_yrs,
+            ticktext=[f'Yr {y}<br>(CY {_first_yr + y - 1})' for y in _tick_yrs],
+        )
         _hfig.update_layout(
-            height=360, yaxis_range=[0, 108],
+            height=380, yaxis_range=[0, 108],
             paper_bgcolor='#111827', plot_bgcolor='#0f172a',
-            legend=dict(orientation='h', y=-0.25),
-            margin=dict(l=40, r=20, t=10, b=60),
+            legend=dict(orientation='h', y=-0.32),
+            margin=dict(l=40, r=20, t=10, b=90),
         )
         st.plotly_chart(_hfig, use_container_width=True)
 
@@ -2501,12 +2585,17 @@ def _render_journey():
         _bc = _card['barrier_color']
         _ti = _card['trigger_icon']
         _bi = _card['barrier_icon']
+        _inote = _card.get('intervention_note', '')
+        _inote_html = (
+            f'<div style="font-size:.69rem;color:#94a3b8;font-style:italic;margin-top:.25rem;">'
+            f'&#9432; {_inote}</div>'
+        ) if _inote else ''
         st.markdown(f"""
         <div style="border-left:3px solid {_bc};padding:.7rem 1rem;margin:.45rem 0;
                     background:#111827;border-radius:0 6px 6px 0;">
           <div style="font-size:.68rem;color:#64748b;text-transform:uppercase;
                       letter-spacing:.05em;margin-bottom:.2rem;">
-            Year {_card['year_field']} &nbsp;·&nbsp; {_card['cal_year']}
+            Yr {_card['year_field']} &nbsp;·&nbsp; CY {_card['cal_year']}
             &nbsp;·&nbsp; {_bi} {_card['barrier']} barrier
             &nbsp;·&nbsp; {_ti} {_card['trigger']}
           </div>
@@ -2534,8 +2623,20 @@ def _render_journey():
             <span>💰 {_card['cost']}</span>
             <span>⏱ {_card['downtime']}</span>
           </div>
+          {_inote_html}
         </div>
         """, unsafe_allow_html=True)
+
+    # ── Remaining Useful Life ──────────────────────────────────────────────────
+    section('REMAINING USEFUL LIFE (APPROXIMATE)')
+    st.caption(
+        'Estimated time to next intervention from the last observed event on this well. '
+        'Based on last observed annual failure probability — indicative only, not a re-simulation. '
+        'Next Risk Window = field-life year when health is projected to reach the critical threshold.'
+    )
+    _rul_df = _jd.get('rul_df', pd.DataFrame())
+    if not _rul_df.empty:
+        st.dataframe(_rul_df, use_container_width=True, hide_index=True)
 
     # ── Cost & downtime history ────────────────────────────────────────────────
     section('COST & DOWNTIME HISTORY')
@@ -2544,18 +2645,26 @@ def _render_journey():
         _jcol1, _jcol2 = st.columns(2)
         with _jcol1:
             _cfig = _px_j.bar(
-                _cby, x='year_of_field_life', y='cost',
-                labels={'year_of_field_life': 'Year of Field Life', 'cost': 'Intervention Cost ($)'},
+                _cby, x='calendar_year', y='cost',
+                labels={'calendar_year': 'Calendar Year', 'cost': 'Intervention Cost ($)'},
                 template='plotly_dark', color_discrete_sequence=['#3b82f6'],
+                custom_data=['year_of_field_life'],
+            )
+            _cfig.update_traces(
+                hovertemplate='CY %{x} (Yr %{customdata[0]:.0f})<br>Cost: $%{y:,.0f}<extra></extra>'
             )
             _cfig.update_layout(height=280, paper_bgcolor='#111827', plot_bgcolor='#0f172a',
                                  margin=dict(l=40, r=10, t=20, b=40))
             st.plotly_chart(_cfig, use_container_width=True)
         with _jcol2:
             _dtfig = _px_j.bar(
-                _cby, x='year_of_field_life', y='downtime',
-                labels={'year_of_field_life': 'Year of Field Life', 'downtime': 'Downtime (days)'},
+                _cby, x='calendar_year', y='downtime',
+                labels={'calendar_year': 'Calendar Year', 'downtime': 'Downtime (days)'},
                 template='plotly_dark', color_discrete_sequence=['#f59e0b'],
+                custom_data=['year_of_field_life'],
+            )
+            _dtfig.update_traces(
+                hovertemplate='CY %{x} (Yr %{customdata[0]:.0f})<br>Downtime: %{y:.0f} days<extra></extra>'
             )
             _dtfig.update_layout(height=280, paper_bgcolor='#111827', plot_bgcolor='#0f172a',
                                   margin=dict(l=40, r=10, t=20, b=40))
@@ -2566,7 +2675,8 @@ def _render_journey():
     st.caption('Select any event to see the exact chain of model decisions that produced it.')
     _wt = _jd['wt']
     _dp_options = [
-        f"Yr {int(r['year_of_field_life'])} · "
+        f"Yr {int(r['year_of_field_life'])} "
+        f"(CY {int(r.get('calendar_year', _first_yr + int(r['year_of_field_life']) - 1))}) · "
         f"{r.get('display_name', r['component'])} · "
         f"{r.get('trigger_type', '?')}"
         for _, r in _wt.iterrows()
