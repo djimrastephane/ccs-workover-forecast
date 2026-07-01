@@ -53,7 +53,7 @@ jobs:
           )
           from src.config_loader import load_component_assumptions
 
-          failure_df, campaign_log, annual_costs, ls = run_simulation(
+          failure_df, campaign_log, annual_costs, ls, campaign_event_map = run_simulation(
               n_simulations=20,
               n_injectors=8,
               n_monitoring=2,
@@ -65,6 +65,8 @@ jobs:
           assert not failure_df.empty, 'No failure events generated'
           assert not campaign_log.empty, 'No campaigns generated'
           assert not annual_costs.empty, 'No annual costs generated'
+          assert not campaign_event_map.empty, 'No campaign event map generated'
+          assert 'campaign_id' in campaign_event_map.columns, 'campaign_event_map missing campaign_id column'
           assert ls['p50_lifecycle_cost'] > 0, 'P50 lifecycle cost is zero'
           assert ls['p50_workovers'] > 0, 'P50 workovers is zero'
 
@@ -87,17 +89,17 @@ jobs:
 
           # Verify monitoring_program parameter works for all three tiers
           for tier in ('minimal', 'standard', 'comprehensive'):
-              fdf, _, _, ls_tier = run_simulation(
+              fdf, _, _, ls_tier, _ = run_simulation(
                   n_simulations=10, n_injectors=8, n_monitoring=2,
                   operating_years=30, seed=42, monitoring_program=tier,
               )
               assert not fdf.empty, f'No failures for monitoring_program={tier}'
           # Comprehensive should detect more failures as preventive than minimal
           # (test the mechanism, not the aggregate economics — too few wells for stable P50)
-          fdf_min,  _, _, _ = run_simulation(n_simulations=50, n_injectors=8, n_monitoring=2,
-                                              operating_years=30, seed=42, monitoring_program='minimal')
-          fdf_comp, _, _, _ = run_simulation(n_simulations=50, n_injectors=8, n_monitoring=2,
-                                              operating_years=30, seed=42, monitoring_program='comprehensive')
+          fdf_min,  _, _, _, _ = run_simulation(n_simulations=50, n_injectors=8, n_monitoring=2,
+                                               operating_years=30, seed=42, monitoring_program='minimal')
+          fdf_comp, _, _, _, _ = run_simulation(n_simulations=50, n_injectors=8, n_monitoring=2,
+                                               operating_years=30, seed=42, monitoring_program='comprehensive')
           prev_min  = (fdf_min['trigger_type']  == 'preventive').mean()
           prev_comp = (fdf_comp['trigger_type'] == 'preventive').mean()
           assert prev_comp > prev_min, (
@@ -134,7 +136,7 @@ jobs:
           from src.simulation import run_simulation
 
           def p50_cost(scenario):
-              _, _, _, ls = run_simulation(
+              _, _, _, ls, _ = run_simulation(
                   n_simulations=50, n_injectors=8, n_monitoring=2,
                   operating_years=20, scenario_id=scenario, seed=42,
               )
