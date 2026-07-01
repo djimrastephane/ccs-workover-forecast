@@ -61,6 +61,9 @@ _OUTPUT_COLUMNS = [
     'sampled_mttf', 'base_probability', 'lifecycle_multiplier', 'adjusted_probability',
     'intervention_required', 'intervention_type', 'immediate_or_deferred',
     'estimated_duration_days', 'estimated_cost', 'injection_impact',
+    'sampled_p10_mttf', 'sampled_p50_mttf', 'sampled_p90_mttf',
+    'cumulative_failure_probability', 'bernoulli_draw',
+    'failure_occurred', 'detected', 'detection_probability', 'threshold_triggered',
 ]
 
 
@@ -154,6 +157,11 @@ def generate_all_failures(
             0.95,
         )
 
+        # -- Compute cumulative failure probability once (used for trace and threshold) --
+        cum_fp_3d = cumulative_failure_probability(
+            adj_prob.reshape(n_simulations * n_wells, operating_years)
+        ).reshape(n_simulations, n_wells, operating_years)     # (n_sims, n_wells, n_years)
+
         # -- Reactive failures -- Bernoulli trials ----------------------------
         draws = rng.random((n_simulations, n_wells, operating_years))
         failures = draws < adj_prob                             # (n_sims, n_wells, n_years)
@@ -181,11 +189,12 @@ def generate_all_failures(
 
             # Detection: some reactive failures are caught by monitoring /
             # inspection before escalating. Detected → planned, deferred, 80% cost.
+            detected_arr = np.zeros(n_ev, dtype=bool)
             if detection_prob > 0:
-                detected = rng.random(n_ev) < detection_prob
-                ev_trigger[detected] = 'preventive'
-                ev_imm[detected] = 'deferred'
-                ev_cost[detected] *= 0.80
+                detected_arr = rng.random(n_ev) < detection_prob
+                ev_trigger[detected_arr] = 'preventive'
+                ev_imm[detected_arr] = 'deferred'
+                ev_cost[detected_arr] *= 0.80
 
             frames.append(pd.DataFrame({
                 'simulation_id':         sim_idx + 1,
@@ -208,17 +217,21 @@ def generate_all_failures(
                 'estimated_duration_days': duration,
                 'estimated_cost':        ev_cost,
                 'injection_impact':      has_injection_impact,
+                'sampled_p10_mttf':                P10,
+                'sampled_p50_mttf':                (P10 + P90) / 2.0,
+                'sampled_p90_mttf':                P90,
+                'cumulative_failure_probability':  cum_fp_3d[sim_idx, well_idx, year_idx],
+                'bernoulli_draw':                  draws[sim_idx, well_idx, year_idx],
+                'failure_occurred':                True,
+                'detected':                        detected_arr,
+                'detection_probability':           detection_prob,
+                'threshold_triggered':             False,
             }))
 
         # -- Preventive events -- threshold-based (per well) ------------------
-        # Flatten to (n_sims*n_wells, n_years) for cumulative probability,
-        # then reshape back to (n_sims, n_wells).
-        cum_fp = cumulative_failure_probability(
-            adj_prob.reshape(n_simulations * n_wells, operating_years)
-        ).reshape(n_simulations, n_wells, operating_years)     # (n_sims, n_wells, n_years)
-
+        # Use already-computed cum_fp_3d for threshold calculation.
         prev_years = compute_threshold_year(
-            cum_fp.reshape(n_simulations * n_wells, operating_years),
+            cum_fp_3d.reshape(n_simulations * n_wells, operating_years),
             intervention_threshold,
         ).reshape(n_simulations, n_wells)                      # (n_sims, n_wells)
 
@@ -256,6 +269,15 @@ def generate_all_failures(
                 'estimated_duration_days': duration,
                 'estimated_cost':        cost * 0.80,
                 'injection_impact':      has_injection_impact,
+                'sampled_p10_mttf':                P10,
+                'sampled_p50_mttf':                (P10 + P90) / 2.0,
+                'sampled_p90_mttf':                P90,
+                'cumulative_failure_probability':  cum_fp_3d[sim_rep, well_rep, yr_rep - 1],
+                'bernoulli_draw':                  np.nan,
+                'failure_occurred':                False,
+                'detected':                        False,
+                'detection_probability':           detection_prob,
+                'threshold_triggered':             True,
             }))
 
     if not frames:

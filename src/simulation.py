@@ -33,7 +33,7 @@ def run_simulation(
     component_penetration_rates: dict | None = None,
     co_location_discount_factor: float = 0.25,
     field_id: str | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, pd.DataFrame]:
     """
     Orchestrate the full Monte Carlo simulation pipeline.
 
@@ -140,7 +140,7 @@ def run_simulation(
     )
 
     if failure_df.empty:
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}, pd.DataFrame()
 
     # ── Apply co-location discount ────────────────────────────────────────────
     # When multiple components fail on the same well in the same year, charge
@@ -153,7 +153,7 @@ def run_simulation(
 
     # ── Schedule campaigns ────────────────────────────────────────────────────
     _progress('Scheduling campaigns…', 0.85)
-    campaign_log = schedule_campaigns(
+    campaign_log, campaign_event_map = schedule_campaigns(
         failure_df,
         cost_assumptions,
         campaign_threshold=campaign_threshold,
@@ -167,4 +167,4 @@ def run_simulation(
     lifecycle_summary = compute_lifecycle_summary(annual_costs, campaign_log, failure_df)
 
     _progress('Done.', 1.0)
-    return failure_df, campaign_log, annual_costs, lifecycle_summary
+    return failure_df, campaign_log, annual_costs, lifecycle_summary, campaign_event_map

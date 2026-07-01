@@ -37,6 +37,7 @@ from src.plotting import (
     plot_scenario_comparison, plot_scenario_workovers,
     plot_tornado_chart,
 )
+from src.trace import build_simulation_trace, compute_worst_year_breakdown
 
 # ── Page config (must be first) ───────────────────────────────────────────────
 st.set_page_config(
@@ -431,7 +432,7 @@ if run_btn:
             _step_text.markdown(f'`{message}`')
             _progress_bar.progress(min(fraction, 1.0))
 
-        failure_df, campaign_log, annual_costs, lifecycle_summary = run_simulation(
+        failure_df, campaign_log, annual_costs, lifecycle_summary, campaign_event_map = run_simulation(
             n_simulations=n_simulations,
             n_injectors=n_injectors,
             n_monitoring=n_monitoring,
@@ -499,6 +500,9 @@ if run_btn:
         _maturity_score = compute_maturity_score(_observed_events, _cal_factors, _cal_field_id)
         _drift_alerts   = detect_drift(_cal_factors)
 
+    simulation_trace = build_simulation_trace(failure_df, campaign_event_map, params)
+    worst_year_data  = compute_worst_year_breakdown(failure_df, campaign_log, annual_forecast, params)
+
     st.session_state.results = dict(
         failure_df=failure_df, campaign_log=campaign_log, annual_costs=annual_costs,
         lifecycle_summary=lifecycle_summary, annual_forecast=annual_forecast,
@@ -510,6 +514,9 @@ if run_btn:
         observed_events=_observed_events, cal_factors=_cal_factors,
         maturity_score=_maturity_score, drift_alerts=_drift_alerts,
         cal_field_id=_cal_field_id,
+        campaign_event_map=campaign_event_map,
+        simulation_trace=simulation_trace,
+        worst_year_data=worst_year_data,
     )
 
 # ── Landing state ─────────────────────────────────────────────────────────────
@@ -554,6 +561,9 @@ cal_factors        = r.get('cal_factors', pd.DataFrame())
 maturity_score     = r.get('maturity_score', {})
 drift_alerts       = r.get('drift_alerts', [])
 cal_field_id       = r.get('cal_field_id')
+campaign_event_map = r.get('campaign_event_map', pd.DataFrame())
+simulation_trace   = r.get('simulation_trace', pd.DataFrame())
+worst_year_data    = r.get('worst_year_data', {})
 
 scen_label = _SCENARIO_LABELS.get(params['scenario_id'], params['scenario_id'])
 fpm        = params.get('failure_prob_multiplier', 1.0)
@@ -569,11 +579,12 @@ _ALL_TAB_DEFS = [
     ('calibration',  '🎯  Field Calibration'),
     ('qa',           '🔬  Model QA'),
     ('assumptions',  '⚙️  Assumptions'),
+    ('trace',        '🔍  Simulation Trace'),
 ]
 _MODE_TABS = {
     'Executive':   {'overview', 'scenarios'},
     'Engineering': {'overview', 'forecast', 'risk', 'campaigns', 'economics', 'scenarios',
-                    'calibration', 'assumptions'},
+                    'calibration', 'assumptions', 'trace'},
     'Developer':   {t[0] for t in _ALL_TAB_DEFS},
 }
 _active_tabs  = [(k, lbl) for k, lbl in _ALL_TAB_DEFS if k in _MODE_TABS[view_mode]]
@@ -1859,6 +1870,446 @@ def _render_assumptions():
     st.dataframe(load_scenario_config(), use_container_width=True)
 
 
+def _render_trace():
+    import numpy as np
+    import plotly.graph_objects as go
+
+    st.markdown("""
+    <div style="margin-bottom:1.25rem;">
+      <div style="font-size:1.05rem;font-weight:700;color:#e2e8f0;margin-bottom:.25rem;">
+        Simulation Trace — Full Decision Audit
+      </div>
+      <div style="font-size:.78rem;color:#64748b;">
+        Drill from portfolio peak year down to individual component decisions.
+        Every Bernoulli draw, detection event, and campaign assignment is traceable.
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if simulation_trace.empty:
+        st.info('Run the simulation to generate the trace.')
+        return
+
+    # ── Audit Mode toggle ─────────────────────────────────────────────────────
+    audit_mode = st.toggle('Audit Mode — show all intermediate variables', value=False)
+
+    # ── WORST YEAR EXPLAINABILITY ─────────────────────────────────────────────
+    section('WORST YEAR EXPLAINABILITY')
+    if worst_year_data:
+        wd = worst_year_data
+        _wc1, _wc2, _wc3, _wc4, _wc5 = st.columns(5)
+        _wc1.metric('Peak Year (Field)', f"Year {wd['peak_year_field']}")
+        _wc2.metric('Calendar Year', str(wd['peak_year_calendar']))
+        _wc3.metric('Field Age', f"{wd['field_age']} yrs")
+        _wc4.metric('P50 Interventions', f"{wd['p50_interventions']:.1f}")
+        _wc5.metric('P50 Campaigns', f"{wd['n_campaigns_py']:.1f}")
+
+        _wd_c1, _wd_c2 = st.columns(2)
+        with _wd_c1:
+            section('COMPONENT BREAKDOWN')
+            if wd['comp_breakdown']:
+                comp_df = pd.DataFrame(
+                    list(wd['comp_breakdown'].items()),
+                    columns=['Component', 'P50 Events/yr'],
+                ).head(8)
+                st.dataframe(comp_df, use_container_width=True, hide_index=True)
+        with _wd_c2:
+            section('CAMPAIGN BREAKDOWN')
+            if wd['campaign_breakdown']:
+                camp_df = pd.DataFrame(
+                    list(wd['campaign_breakdown'].items()),
+                    columns=['Campaign Type', 'P50 Campaigns/yr'],
+                )
+                st.dataframe(camp_df, use_container_width=True, hide_index=True)
+
+        st.markdown(narrative_card(wd['narrative']), unsafe_allow_html=True)
+
+    # ── CASCADING FILTERS ─────────────────────────────────────────────────────
+    section('TRACE FILTERS')
+    _all_sims = sorted(simulation_trace['simulation_id'].unique().tolist())
+    _all_wells = sorted(simulation_trace['well_id'].unique().tolist())
+    _all_comps = sorted(simulation_trace['component'].unique().tolist())
+    _yr_min = int(simulation_trace['year_of_field_life'].min())
+    _yr_max = int(simulation_trace['year_of_field_life'].max())
+
+    _f1, _f2, _f3, _f4 = st.columns(4)
+    with _f1:
+        _sel_sims = st.multiselect(
+            'Simulation ID(s)',
+            options=_all_sims[:50],
+            default=[_all_sims[0]] if _all_sims else [],
+            help='Select one or more Monte Carlo simulation runs to inspect.',
+        )
+    with _f2:
+        _sel_wells = st.multiselect(
+            'Well(s)',
+            options=_all_wells,
+            default=[],
+            placeholder='All wells',
+        )
+    with _f3:
+        _yr_range = st.slider(
+            'Year of Field Life',
+            min_value=_yr_min, max_value=_yr_max,
+            value=(_yr_min, _yr_max),
+        )
+    with _f4:
+        _sel_comps = st.multiselect(
+            'Component(s)',
+            options=_all_comps,
+            default=[],
+            placeholder='All components',
+        )
+
+    # Build filtered trace
+    _ft = simulation_trace.copy()
+    if _sel_sims:
+        _ft = _ft[_ft['simulation_id'].isin(_sel_sims)]
+    if _sel_wells:
+        _ft = _ft[_ft['well_id'].isin(_sel_wells)]
+    if _sel_comps:
+        _ft = _ft[_ft['component'].isin(_sel_comps)]
+    _ft = _ft[
+        (_ft['year_of_field_life'] >= _yr_range[0]) &
+        (_ft['year_of_field_life'] <= _yr_range[1])
+    ]
+
+    st.caption(f'{len(_ft):,} events matching current filters')
+
+    # ── INTERVENTION EXPLAINABILITY PANEL ─────────────────────────────────────
+    if _sel_wells and len(_sel_wells) == 1 and _sel_sims and len(_sel_sims) == 1:
+        section('INTERVENTION EXPLAINABILITY')
+        _well_year_events = _ft.copy()
+        if not _well_year_events.empty:
+            _yr_options = sorted(_well_year_events['year_of_field_life'].unique().tolist())
+            _exp_year = st.selectbox(
+                'Inspect Year',
+                options=_yr_options,
+                index=len(_yr_options) - 1 if _yr_options else 0,
+                format_func=lambda y: f"Year {y} (Cal. {params['first_injection_year'] + y - 1})",
+            )
+            _year_events = _well_year_events[_well_year_events['year_of_field_life'] == _exp_year]
+
+            if not _year_events.empty:
+                _ec1, _ec2 = st.columns([2, 1])
+                with _ec1:
+                    _drivers = _year_events.sort_values('annual_failure_probability', ascending=False)
+                    _primary = _drivers.iloc[0]
+                    _dn_col = 'display_name' if 'display_name' in _primary.index else 'component'
+
+                    _det_text = 'Detected by monitoring.' if _primary.get('detected', False) else 'Undetected reactive failure.'
+                    _defer_text = 'Yes' if _primary.get('can_defer', True) else 'No — immediate mobilisation required.'
+                    _camp_id = _primary.get('campaign_id', None)
+                    _camp_type = str(_primary.get('campaign_type', 'N/A'))
+                    _camp_size = _primary.get('campaign_size', 'N/A')
+                    _camp_str = f"{_camp_type.replace('_', ' ').title()} — Campaign {_camp_id}" if pd.notna(_camp_id) else 'Not yet assigned'
+                    _cost_str = f"${float(_primary['intervention_cost']) / 1e6:.2f}M" if pd.notna(_primary.get('intervention_cost')) else 'N/A'
+                    _days_str = f"{float(_primary['downtime_days']):.0f} days" if pd.notna(_primary.get('downtime_days')) else 'N/A'
+                    _prob_str = f"{float(_primary['annual_failure_probability']) * 100:.1f}%" if pd.notna(_primary.get('annual_failure_probability')) else 'N/A'
+
+                    st.markdown(f"""
+                    <div style="background:#111827;border:1px solid #1e293b;border-left:4px solid #3b82f6;
+                                border-radius:0 8px 8px 0;padding:1.1rem 1.3rem;margin-bottom:.75rem;">
+                      <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+                                  color:#3b82f6;margin-bottom:.85rem;">WHY DID THIS INTERVENTION HAPPEN?</div>
+                      <table style="width:100%;border-collapse:collapse;font-size:.8rem;">
+                        <tr>
+                          <td style="color:#64748b;padding:.2rem 1rem .2rem 0;width:40%;">Well</td>
+                          <td style="color:#e2e8f0;font-weight:600;">{_sel_wells[0]}</td>
+                        </tr>
+                        <tr>
+                          <td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Year</td>
+                          <td style="color:#e2e8f0;font-weight:600;">Year {_exp_year} (Cal. {params['first_injection_year'] + _exp_year - 1})</td>
+                        </tr>
+                        <tr>
+                          <td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Primary Driver</td>
+                          <td style="color:#e2e8f0;font-weight:600;">{str(_primary[_dn_col]).replace('_',' ').title()} — {str(_primary.get('failure_mode','failure')).replace('_',' ')}</td>
+                        </tr>
+                        <tr>
+                          <td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Failure Probability</td>
+                          <td style="color:#f59e0b;font-weight:600;">{_prob_str}</td>
+                        </tr>
+                        <tr>
+                          <td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Detection</td>
+                          <td style="color:#e2e8f0;">{_det_text}</td>
+                        </tr>
+                        <tr>
+                          <td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Barrier Class</td>
+                          <td style="color:#e2e8f0;">{str(_primary.get('barrier_class','N/A')).replace('_',' ').title()}</td>
+                        </tr>
+                        <tr>
+                          <td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Deferred</td>
+                          <td style="color:#e2e8f0;">{_defer_text}</td>
+                        </tr>
+                        <tr>
+                          <td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Campaign Assignment</td>
+                          <td style="color:#e2e8f0;">{_camp_str}</td>
+                        </tr>
+                        <tr>
+                          <td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Campaign Size</td>
+                          <td style="color:#e2e8f0;">{_camp_size} wells</td>
+                        </tr>
+                        <tr>
+                          <td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Expected Downtime</td>
+                          <td style="color:#e2e8f0;">{_days_str}</td>
+                        </tr>
+                        <tr>
+                          <td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Expected Cost</td>
+                          <td style="color:#10b981;font-weight:600;">{_cost_str}</td>
+                        </tr>
+                      </table>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    if len(_drivers) > 1:
+                        _supporting = _drivers.iloc[1:]
+                        supp_names = ', '.join(
+                            str(r[_dn_col]).replace('_', ' ').title()
+                            for _, r in _supporting.iterrows()
+                        )
+                        st.caption(f'Supporting drivers in Year {_exp_year}: {supp_names}')
+
+                with _ec2:
+                    if audit_mode and not _year_events.empty:
+                        st.markdown("""
+                        <div style="background:#0f172a;border:1px solid #1e293b;border-radius:6px;
+                                    padding:.9rem 1.1rem;font-size:.75rem;">
+                          <div style="color:#3b82f6;font-weight:700;margin-bottom:.65rem;font-size:.65rem;
+                                      text-transform:uppercase;letter-spacing:.1em;">AUDIT — INTERMEDIATE VARIABLES</div>
+                        """, unsafe_allow_html=True)
+                        for _, _ev in _year_events.iterrows():
+                            _ev_name = str(_ev.get('display_name', _ev['component'])).replace('_', ' ').title()
+                            _p10 = _ev.get('sampled_p10_mttf')
+                            _p50 = _ev.get('sampled_p50_mttf')
+                            _p90 = _ev.get('sampled_p90_mttf')
+                            _eff = _ev.get('effective_mttf')
+                            _bt  = _ev.get('bathtub_multiplier')
+                            _ap  = _ev.get('annual_failure_probability')
+                            _cf  = _ev.get('cumulative_failure_probability')
+                            _bd  = _ev.get('bernoulli_draw')
+                            _dp  = _ev.get('detection_probability')
+                            _det = bool(_ev.get('detected', False))
+                            _th  = bool(_ev.get('threshold_triggered', False))
+                            _fo  = bool(_ev.get('failure_occurred', False))
+
+                            def _fmt(v, pct=False, dec=2):
+                                try:
+                                    fv = float(v)
+                                    if np.isnan(fv):
+                                        return '—'
+                                    return f'{fv*100:.1f}%' if pct else f'{fv:.{dec}f}'
+                                except (TypeError, ValueError):
+                                    return '—'
+
+                            st.markdown(f"""
+                            <div style="border-top:1px solid #1e293b;padding:.55rem 0 .35rem;margin-top:.4rem;">
+                              <div style="color:#94a3b8;font-weight:600;margin-bottom:.4rem;">{_ev_name}</div>
+                              <div style="color:#475569;line-height:2;font-size:.72rem;">
+                                P10 MTTF: <span style="color:#e2e8f0;">{_fmt(_p10, dec=0)} yrs</span><br>
+                                P50 MTTF: <span style="color:#e2e8f0;">{_fmt(_p50, dec=0)} yrs</span><br>
+                                P90 MTTF: <span style="color:#e2e8f0;">{_fmt(_p90, dec=0)} yrs</span><br>
+                                Effective (sampled): <span style="color:#f59e0b;">{_fmt(_eff, dec=1)} yrs</span><br>
+                                Bathtub multiplier: <span style="color:#e2e8f0;">{_fmt(_bt, dec=2)}×</span><br>
+                                Annual prob: <span style="color:#f59e0b;">{_fmt(_ap, pct=True)}</span><br>
+                                Cumulative prob: <span style="color:#ef4444;">{_fmt(_cf, pct=True)}</span><br>
+                                Bernoulli draw: <span style="color:#e2e8f0;">{_fmt(_bd, dec=4)}</span><br>
+                                Failure: <span style="color:{'#ef4444' if _fo else '#10b981'};">{'TRUE' if _fo else 'FALSE'}</span><br>
+                                Detection prob: <span style="color:#e2e8f0;">{_fmt(_dp, pct=True)}</span><br>
+                                Detected: <span style="color:{'#10b981' if _det else '#64748b'};">{'TRUE' if _det else 'FALSE'}</span><br>
+                                Threshold triggered: <span style="color:{'#8b5cf6' if _th else '#64748b'};">{'TRUE' if _th else 'FALSE'}</span>
+                              </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── TRACE TABLE ───────────────────────────────────────────────────────────
+    section('TRACE TABLE')
+
+    if not _ft.empty:
+        _disp_cols_map = {
+            'year_of_field_life':         'Year',
+            'calendar_year':              'Cal. Year',
+            'well_id':                    'Well',
+            'component':                  'Component',
+            'effective_mttf':             'Eff. MTTF (yrs)',
+            'bathtub_multiplier':         'Bathtub ×',
+            'annual_failure_probability': 'Fail Prob',
+            'bernoulli_draw':             'Draw',
+            'failure_occurred':           'Failure?',
+            'detected':                   'Detected?',
+            'barrier_class':              'Barrier',
+            'can_defer':                  'Deferrable?',
+            'threshold_triggered':        'Threshold?',
+            'intervention_type':          'Intervention',
+            'trigger_type':               'Trigger',
+            'campaign_type':              'Campaign Type',
+            'campaign_id':                'Campaign ID',
+            'campaign_size':              'Camp. Wells',
+            'intervention_cost':          'Cost (USD)',
+            'downtime_days':              'Downtime (days)',
+        }
+        _disp_cols = [c for c in _disp_cols_map if c in _ft.columns]
+        _disp = _ft[_disp_cols].rename(columns=_disp_cols_map).copy()
+
+        if 'Fail Prob' in _disp.columns:
+            _disp['Fail Prob'] = _disp['Fail Prob'].apply(
+                lambda v: f'{float(v)*100:.1f}%' if pd.notna(v) else '—'
+            )
+        if 'Draw' in _disp.columns:
+            _disp['Draw'] = _disp['Draw'].apply(
+                lambda v: f'{float(v):.4f}' if pd.notna(v) and not (isinstance(v, float) and np.isnan(v)) else '—'
+            )
+        if 'Eff. MTTF (yrs)' in _disp.columns:
+            _disp['Eff. MTTF (yrs)'] = _disp['Eff. MTTF (yrs)'].apply(
+                lambda v: f'{float(v):.1f}' if pd.notna(v) else '—'
+            )
+        if 'Bathtub ×' in _disp.columns:
+            _disp['Bathtub ×'] = _disp['Bathtub ×'].apply(
+                lambda v: f'{float(v):.2f}' if pd.notna(v) else '—'
+            )
+        if 'Cost (USD)' in _disp.columns:
+            _disp['Cost (USD)'] = _disp['Cost (USD)'].apply(
+                lambda v: format_cost(float(v)) if pd.notna(v) else '—'
+            )
+        for _bcol in ['Failure?', 'Detected?', 'Deferrable?', 'Threshold?']:
+            if _bcol in _disp.columns:
+                _disp[_bcol] = _disp[_bcol].apply(
+                    lambda v: 'TRUE' if v is True or v == True else 'FALSE'  # noqa: E712
+                )
+        for _scol in ['Intervention', 'Trigger', 'Campaign Type']:
+            if _scol in _disp.columns:
+                _disp[_scol] = _disp[_scol].apply(
+                    lambda v: str(v).replace('_', ' ').title() if pd.notna(v) else '—'
+                )
+
+        MAX_ROWS = 2000
+        if len(_disp) > MAX_ROWS:
+            st.caption(f'Showing first {MAX_ROWS:,} of {len(_disp):,} rows — narrow your filters to see all.')
+            _disp = _disp.head(MAX_ROWS)
+
+        st.dataframe(_disp, use_container_width=True, hide_index=True)
+
+        if audit_mode:
+            with st.expander('Raw trace columns (audit mode)'):
+                st.dataframe(_ft.head(500), use_container_width=True)
+    else:
+        st.info('No events match the current filters.')
+
+    # ── SIMULATION TIMELINE ───────────────────────────────────────────────────
+    if _sel_wells and len(_sel_wells) == 1 and _sel_sims and len(_sel_sims) == 1 and _sel_comps and len(_sel_comps) == 1:
+        section('SIMULATION TIMELINE')
+        _comp_trace = simulation_trace[
+            (simulation_trace['simulation_id'] == _sel_sims[0]) &
+            (simulation_trace['well_id'] == _sel_wells[0]) &
+            (simulation_trace['component'] == _sel_comps[0])
+        ].sort_values('year_of_field_life')
+
+        if not _comp_trace.empty:
+            _tl_fig = go.Figure()
+
+            events_list = []
+            for _, _ev in _comp_trace.iterrows():
+                _yr = int(_ev['year_of_field_life'])
+                _th = bool(_ev.get('threshold_triggered', False))
+                _dt = bool(_ev.get('detected', False))
+                _cy = _ev.get('campaign_year')
+
+                if _th:
+                    events_list.append((_yr, 'Threshold exceeded — preventive trigger', '#8b5cf6', 'diamond'))
+                elif _dt:
+                    events_list.append((_yr, 'Failure detected — planned intervention', '#f59e0b', 'star'))
+                else:
+                    events_list.append((_yr, 'Reactive failure', '#ef4444', 'circle'))
+
+                if pd.notna(_cy) and int(float(_cy)) != _yr:
+                    events_list.append((int(float(_cy)), 'Campaign execution', '#10b981', 'square'))
+
+            _cum_vals = []
+            for _, _ev in _comp_trace.iterrows():
+                _yr = int(_ev['year_of_field_life'])
+                _cv = _ev.get('cumulative_failure_probability')
+                if pd.notna(_cv):
+                    try:
+                        _cum_vals.append((_yr, float(_cv) * 100))
+                    except (TypeError, ValueError):
+                        pass
+
+            if _cum_vals:
+                _cy_vals = [v[0] for v in _cum_vals]
+                _cp_vals = [v[1] for v in _cum_vals]
+                _tl_fig.add_trace(go.Scatter(
+                    x=_cy_vals, y=_cp_vals,
+                    mode='markers',
+                    name='Cumulative Prob at Event',
+                    marker=dict(color='#3b82f6', size=8),
+                ))
+
+            for _ey, _elabel, _ecol, _eshape in events_list:
+                _tl_fig.add_trace(go.Scatter(
+                    x=[_ey], y=[50],
+                    mode='markers+text',
+                    name=_elabel,
+                    text=[_elabel],
+                    textposition='top center',
+                    marker=dict(color=_ecol, size=14, symbol=_eshape),
+                    showlegend=True,
+                ))
+
+            _thr_pct = params.get('intervention_threshold', 0.90) * 100
+            _tl_fig.add_hline(y=_thr_pct, line_dash='dot', line_color='#8b5cf6',
+                               annotation_text=f'Threshold {_thr_pct:.0f}%')
+
+            _tl_fig.update_layout(
+                template='plotly_dark',
+                paper_bgcolor='#111827',
+                plot_bgcolor='#111827',
+                height=320,
+                margin=dict(l=40, r=20, t=20, b=40),
+                yaxis_title='Cumulative Failure Prob (%)',
+                xaxis_title='Year of Field Life',
+                legend=dict(
+                    orientation='h', yanchor='bottom', y=1.02,
+                    xanchor='right', x=1, font=dict(size=10),
+                ),
+            )
+            st.plotly_chart(_tl_fig, use_container_width=True)
+            st.caption(
+                'Select one simulation + one well + one component to view the timeline. '
+                'Events shown are only those that resulted in interventions.'
+            )
+
+    # ── EXPORT ────────────────────────────────────────────────────────────────
+    section('EXPORT TRACE')
+    _exp_c1, _exp_c2, _exp_c3 = st.columns(3)
+    with _exp_c1:
+        _export_scope = st.radio(
+            'Export scope',
+            options=['Filtered view', 'Full trace'],
+            horizontal=True,
+            label_visibility='collapsed',
+        )
+    _export_df = _ft if _export_scope == 'Filtered view' else simulation_trace
+    with _exp_c2:
+        st.download_button(
+            'Download CSV',
+            data=_export_df.to_csv(index=False).encode('utf-8'),
+            file_name='simulation_trace.csv',
+            mime='text/csv',
+            use_container_width=True,
+        )
+    with _exp_c3:
+        import io
+        _parquet_buf = io.BytesIO()
+        _export_df.to_parquet(_parquet_buf, index=False)
+        st.download_button(
+            'Download Parquet',
+            data=_parquet_buf.getvalue(),
+            file_name='simulation_trace.parquet',
+            mime='application/octet-stream',
+            use_container_width=True,
+        )
+
+
 # ── Tab dispatch ──────────────────────────────────────────────────────────────
 if 'overview' in T:
     with T['overview']:
@@ -1895,6 +2346,10 @@ if 'qa' in T:
 if 'assumptions' in T:
     with T['assumptions']:
         _render_assumptions()
+
+if 'trace' in T:
+    with T['trace']:
+        _render_trace()
 
 
 # ── Sidebar downloads ─────────────────────────────────────────────────────────
