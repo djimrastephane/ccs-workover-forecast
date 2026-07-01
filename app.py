@@ -1,3 +1,4 @@
+import datetime
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -266,13 +267,17 @@ with st.sidebar:
     n_monitoring = n_wells - n_injectors
     st.caption(f'{n_injectors} injectors · {n_monitoring} monitoring wells')
     operating_years = st.slider('Operating Life (years)', 10, 40, 30, step=5)
-    if view_mode != 'Executive':
-        first_injection_year = st.number_input(
-            'First Injection Year', min_value=2020, max_value=2060, value=2030, step=1,
-            help='Used to display calendar years in peak-year analysis and calibration timeline.',
-        )
-    else:
-        first_injection_year = 2030
+    first_injection_year = st.number_input(
+        'Simulation Start Year',
+        min_value=2020, max_value=2100,
+        value=datetime.date.today().year,
+        step=1,
+        help=(
+            'First calendar year of field operations. '
+            'Converts field-life years to calendar years for reporting. '
+            'Does not affect reliability or ageing calculations.'
+        ),
+    )
 
     st.markdown('<div class="sb-section">⚙️ Simulation</div>', unsafe_allow_html=True)
     scenario_id = st.selectbox(
