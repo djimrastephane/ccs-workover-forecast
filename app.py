@@ -2549,16 +2549,25 @@ Derived from the configured First Injection Year in the sidebar. Both field-life
                     _hfig.add_trace(_go_j.Scatter(
                         x=_cf_c['year_of_field_life'], y=_cf_c['health_pct'],
                         mode='lines',
-                        line=dict(dash='dash', width=1),
-                        name=f'{_cn} (no intervention)',
-                        opacity=0.45,
-                        showlegend=True,
+                        line=dict(dash='dot', width=2, color='#94a3b8'),
+                        name=f'{_cn} (no interv.)',
+                        opacity=0.75,
+                        showlegend=False,
                         customdata=_cf_c[['calendar_year']].values,
                         hovertemplate=(
+                            '<b>No-intervention counterfactual</b><br>'
+                            f'{_cn}<br>'
                             'Yr %{x:.0f} (CY %{customdata[0]:.0f})<br>'
-                            'Health (no interv.): %{y:.1f}%<extra></extra>'
+                            'Health: %{y:.1f}%<extra></extra>'
                         ),
                     ))
+                # Single legend entry for all counterfactual traces
+                _hfig.add_trace(_go_j.Scatter(
+                    x=[None], y=[None], mode='lines',
+                    line=dict(dash='dot', width=2, color='#94a3b8'),
+                    name='No intervention (counterfactual)',
+                    showlegend=True,
+                ))
         _hfig.add_hline(y=80, line_dash='dot', line_color='#f59e0b',
                         annotation_text='Warning (80%)', annotation_font_size=10)
         _hfig.add_hline(y=60, line_dash='dot', line_color='#ef4444',
