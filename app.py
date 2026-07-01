@@ -38,6 +38,11 @@ from src.plotting import (
     plot_tornado_chart,
 )
 from src.trace import build_simulation_trace, compute_worst_year_breakdown
+from src.story import (
+    build_well_journey, build_event_story_card, build_decision_path,
+    build_campaign_story, build_sankey_data,
+    BARRIER_ICON, BARRIER_COLOR, TRIGGER_ICON, CAMPAIGN_ICON,
+)
 
 # ── Page config (must be first) ───────────────────────────────────────────────
 st.set_page_config(
@@ -242,13 +247,14 @@ with st.sidebar:
     st.markdown('<div class="sb-section">👤 View Mode</div>', unsafe_allow_html=True)
     view_mode = st.radio(
         'View Mode',
-        options=['Executive', 'Engineering', 'Developer'],
+        options=['Executive', 'Engineering', 'Reviewer', 'Developer'],
         index=1,
         label_visibility='collapsed',
         horizontal=True,
         help=(
             'Executive: KPI summary and scenario comparison — for managers and regulators.\n\n'
-            'Engineering: Full analysis including risk, campaigns, and assumptions — for well integrity and intervention engineers.\n\n'
+            'Engineering: Full analysis including risk, campaigns, well journeys, and assumptions — for well integrity and intervention engineers.\n\n'
+            'Reviewer: Assumptions, calibration, QA, and full audit trail — for technical reviewers who need to challenge every model decision.\n\n'
             'Developer: All engineering content plus model internals, calibration metrics, and raw distributions — for model validators and reliability engineers.'
         ),
     )
@@ -580,11 +586,13 @@ _ALL_TAB_DEFS = [
     ('qa',           '🔬  Model QA'),
     ('assumptions',  '⚙️  Assumptions'),
     ('trace',        '🔍  Simulation Trace'),
+    ('journey',      '🛤  Well Journey'),
 ]
 _MODE_TABS = {
     'Executive':   {'overview', 'scenarios'},
     'Engineering': {'overview', 'forecast', 'risk', 'campaigns', 'economics', 'scenarios',
-                    'calibration', 'assumptions', 'trace'},
+                    'calibration', 'assumptions', 'trace', 'journey'},
+    'Reviewer':    {'overview', 'assumptions', 'calibration', 'qa', 'trace', 'journey'},
     'Developer':   {t[0] for t in _ALL_TAB_DEFS},
 }
 _active_tabs  = [(k, lbl) for k, lbl in _ALL_TAB_DEFS if k in _MODE_TABS[view_mode]]
@@ -1221,6 +1229,54 @@ def _render_campaigns():
                     'same year are candidates for a shared campaign. A well with multiple '
                     'failure types appears in multiple stacks but requires only one rig visit.'
                 )
+
+        # ── Campaign Story ────────────────────────────────────────────────────
+        section('CAMPAIGN STORY')
+        st.caption('Select any campaign to understand why it existed, which wells participated, and what batching saved.')
+        _all_camp_ids = sorted(campaign_log['campaign_id'].unique().tolist())
+        _sel_camp = st.selectbox('Select campaign', _all_camp_ids,
+                                  format_func=lambda c: c, key='camp_story_sel')
+        if _sel_camp:
+            _cs = build_campaign_story(_sel_camp, campaign_log, simulation_trace)
+            if _cs:
+                st.markdown(narrative_card(_cs['narrative']), unsafe_allow_html=True)
+                _css_c1, _css_c2 = st.columns(2)
+                with _css_c1:
+                    st.markdown(f"""
+                    <div style="background:#111827;border:1px solid #1e293b;border-radius:8px;padding:1rem;">
+                      <div style="font-size:.6rem;font-weight:700;text-transform:uppercase;
+                                  color:#64748b;letter-spacing:.1em;margin-bottom:.75rem;">CAMPAIGN DETAILS</div>
+                      <table style="width:100%;border-collapse:collapse;font-size:.8rem;">
+                        <tr><td style="color:#64748b;padding:.2rem 1rem .2rem 0;width:45%;">Type</td>
+                            <td style="color:#e2e8f0;">{_cs['campaign_icon']} {_cs['campaign_type'].replace('_',' ').title()}</td></tr>
+                        <tr><td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Year</td>
+                            <td style="color:#e2e8f0;">{_cs['year']}</td></tr>
+                        <tr><td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Wells</td>
+                            <td style="color:#e2e8f0;">{_cs['n_wells']}</td></tr>
+                        <tr><td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Events</td>
+                            <td style="color:#e2e8f0;">{_cs['n_events']}</td></tr>
+                        <tr><td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Rig workovers</td>
+                            <td style="color:#e2e8f0;">{_cs['n_rig_workovers']}</td></tr>
+                        <tr><td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Total cost</td>
+                            <td style="color:#10b981;font-weight:600;">{'${:,.0f}'.format(_cs['total_cost'])}</td></tr>
+                        <tr><td style="color:#64748b;padding:.2rem 1rem .2rem 0;">Mob. savings</td>
+                            <td style="color:#10b981;">{'${:,.0f}'.format(_cs['mob_savings']) if _cs['mob_savings'] > 0 else '—'}</td></tr>
+                      </table>
+                    </div>""", unsafe_allow_html=True)
+                with _css_c2:
+                    st.markdown(f"""
+                    <div style="background:#111827;border:1px solid #1e293b;border-radius:8px;padding:1rem;height:100%;">
+                      <div style="font-size:.6rem;font-weight:700;text-transform:uppercase;
+                                  color:#64748b;letter-spacing:.1em;margin-bottom:.6rem;">WHY DID IT EXIST?</div>
+                      <p style="font-size:.8rem;color:#94a3b8;line-height:1.65;margin-bottom:.75rem;">{_cs['why']}</p>
+                      <div style="font-size:.6rem;font-weight:700;text-transform:uppercase;
+                                  color:#64748b;letter-spacing:.1em;margin-bottom:.4rem;">COULD IT HAVE BEEN AVOIDED?</div>
+                      <p style="font-size:.78rem;color:#94a3b8;line-height:1.65;margin:0;">{_cs['avoidable']}</p>
+                    </div>""", unsafe_allow_html=True)
+                if _cs['wells']:
+                    st.caption(f"Wells in this campaign: {', '.join(_cs['wells'])}")
+                if _cs['components']:
+                    st.caption(f"Components addressed: {', '.join(_cs['components'])}")
 
         # ── Developer additions ───────────────────────────────────────────────
         if view_mode == 'Developer':
@@ -1924,6 +1980,42 @@ def _render_trace():
 
         st.markdown(narrative_card(wd['narrative']), unsafe_allow_html=True)
 
+    # ── PORTFOLIO FLOW (Sankey) ───────────────────────────────────────────────
+    section('PORTFOLIO FLOW')
+    st.caption(
+        'Per-simulation average. Traces every failure from detection through barrier hierarchy '
+        'to campaign type and intervention executed.'
+    )
+    _sk = build_sankey_data(simulation_trace, params.get('n_simulations', 1))
+    if _sk and _sk.get('values'):
+        import plotly.graph_objects as _go_sk
+        _sk_fig = _go_sk.Figure(_go_sk.Sankey(
+            arrangement='snap',
+            node=dict(
+                pad=18, thickness=20,
+                line=dict(color='#0f172a', width=0.5),
+                label=_sk['labels'],
+                color=_sk['node_colors'],
+                hovertemplate='%{label}: %{value:.1f} events/sim<extra></extra>',
+            ),
+            link=dict(
+                source=_sk['sources'],
+                target=_sk['targets'],
+                value=_sk['values'],
+                color=_sk['link_colors'],
+                hovertemplate='%{source.label} → %{target.label}: %{value:.1f}/sim<extra></extra>',
+            ),
+        ))
+        _sk_fig.update_layout(
+            height=440,
+            paper_bgcolor='#111827',
+            font=dict(color='#94a3b8', size=11),
+            margin=dict(l=20, r=20, t=10, b=10),
+        )
+        st.plotly_chart(_sk_fig, use_container_width=True)
+    else:
+        st.info('Sankey requires simulation results.')
+
     # ── CASCADING FILTERS ─────────────────────────────────────────────────────
     section('TRACE FILTERS')
     _all_sims = sorted(simulation_trace['simulation_id'].unique().tolist())
@@ -2182,6 +2274,18 @@ def _render_trace():
                     lambda v: str(v).replace('_', ' ').title() if pd.notna(v) else '—'
                 )
 
+        # ── Icon columns ────────────────────────────────────────────────────
+        if 'Barrier' in _disp.columns:
+            _disp.insert(0, '🏷', _ft['barrier_class'].map(BARRIER_ICON).fillna('⚪'))
+        if 'Trigger' in _disp.columns:
+            _trig_map = {'reactive': '⚠️', 'preventive': '✅'}
+            _disp.insert(1 if '🏷' in _disp.columns else 0, '▶', _ft['trigger_type'].map(_trig_map).fillna('❓'))
+        if 'Campaign Type' in _disp.columns:
+            _disp['Campaign Type'] = _ft['campaign_type'].map(
+                lambda v: f"{CAMPAIGN_ICON.get(str(v), '📌')} {str(v).replace('_', ' ').title()}"
+                if pd.notna(v) else '—'
+            )
+
         MAX_ROWS = 2000
         if len(_disp) > MAX_ROWS:
             st.caption(f'Showing first {MAX_ROWS:,} of {len(_disp):,} rows — narrow your filters to see all.')
@@ -2310,6 +2414,190 @@ def _render_trace():
         )
 
 
+def _render_journey():
+    import plotly.graph_objects as _go_j
+    import plotly.express as _px_j
+
+    st.markdown("""
+    <div style="margin-bottom:1.25rem;">
+      <div style="font-size:1.05rem;font-weight:700;color:#e2e8f0;margin-bottom:.25rem;">
+        Well Journey — Single Well Operational History
+      </div>
+      <div style="font-size:.78rem;color:#64748b;">
+        Follow a single well from commissioning to end of life.
+        Every failure event, detection, campaign assignment, and cost is traceable.
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if simulation_trace.empty:
+        st.info('Run the simulation to explore well journeys.')
+        return
+
+    # ── Selectors ─────────────────────────────────────────────────────────────
+    _jc1, _jc2 = st.columns(2)
+    with _jc1:
+        _j_wells = sorted(simulation_trace['well_id'].unique().tolist())
+        _j_well  = st.selectbox('Select Well', _j_wells, key='journey_well')
+    with _jc2:
+        _j_sims = sorted(simulation_trace['simulation_id'].unique().tolist())[:50]
+        _j_sim  = st.selectbox('Simulation Run', _j_sims, key='journey_sim')
+
+    _jd = build_well_journey(
+        simulation_trace, campaign_log,
+        int(_j_sim), str(_j_well),
+        int(params['first_injection_year']),
+        int(params['operating_years']),
+    )
+
+    if not _jd:
+        st.warning(f'No events recorded for {_j_well} in simulation {_j_sim}.')
+        return
+
+    # ── Summary KPIs ──────────────────────────────────────────────────────────
+    section('WELL SUMMARY')
+    _jk1, _jk2, _jk3, _jk4, _jk5 = st.columns(5)
+    _jk1.metric('Total Interventions', _jd['n_interventions'])
+    _jk2.metric('Total Cost',          format_cost(_jd['total_cost']))
+    _jk3.metric('Total Downtime',      f"{int(_jd['total_downtime'])} days")
+    _jk4.metric('Reactive Events',     _jd['n_reactive'])
+    _jk5.metric('Preventive Events',   _jd['n_preventive'])
+
+    # ── Component health evolution ─────────────────────────────────────────────
+    section('COMPONENT HEALTH EVOLUTION')
+    st.caption(
+        'Health = (1 − cumulative failure probability) × 100. '
+        'Restored to 100% after each intervention. '
+        'Between events the curve is linearly interpolated — indicative only.'
+    )
+    _hdf = _jd['health_df']
+    if not _hdf.empty:
+        _hfig = _px_j.line(
+            _hdf, x='year_of_field_life', y='health_pct', color='display_name',
+            labels={'year_of_field_life': 'Year of Field Life',
+                    'health_pct': 'Component Health (%)', 'display_name': 'Component'},
+            template='plotly_dark',
+        )
+        _hfig.add_hline(y=80, line_dash='dot', line_color='#f59e0b',
+                        annotation_text='Warning (80%)', annotation_font_size=10)
+        _hfig.add_hline(y=60, line_dash='dot', line_color='#ef4444',
+                        annotation_text='Critical (60%)', annotation_font_size=10)
+        _hfig.update_layout(
+            height=360, yaxis_range=[0, 108],
+            paper_bgcolor='#111827', plot_bgcolor='#0f172a',
+            legend=dict(orientation='h', y=-0.25),
+            margin=dict(l=40, r=20, t=10, b=60),
+        )
+        st.plotly_chart(_hfig, use_container_width=True)
+
+    # ── Operational timeline ───────────────────────────────────────────────────
+    section('OPERATIONAL TIMELINE')
+    for _card in _jd['story_cards']:
+        _bc = _card['barrier_color']
+        _ti = _card['trigger_icon']
+        _bi = _card['barrier_icon']
+        st.markdown(f"""
+        <div style="border-left:3px solid {_bc};padding:.7rem 1rem;margin:.45rem 0;
+                    background:#111827;border-radius:0 6px 6px 0;">
+          <div style="font-size:.68rem;color:#64748b;text-transform:uppercase;
+                      letter-spacing:.05em;margin-bottom:.2rem;">
+            Year {_card['year_field']} &nbsp;·&nbsp; {_card['cal_year']}
+            &nbsp;·&nbsp; {_bi} {_card['barrier']} barrier
+            &nbsp;·&nbsp; {_ti} {_card['trigger']}
+          </div>
+          <div style="font-size:.92rem;font-weight:700;color:{_bc};margin-bottom:.3rem;">
+            {_card['component']}
+          </div>
+          <div style="font-size:.8rem;color:#e2e8f0;margin-bottom:.45rem;">{_card['what']}</div>
+          <details>
+            <summary style="font-size:.73rem;color:#475569;cursor:pointer;list-style:none;">
+              ▸ Why did this happen?
+            </summary>
+            <div style="font-size:.76rem;color:#94a3b8;margin-top:.3rem;
+                        padding:.4rem 0 0 .6rem;line-height:1.6;">{_card['why']}</div>
+            <div style="font-size:.73rem;color:#64748b;margin-top:.3rem;padding-left:.6rem;">
+              <em>Detection:</em> {_card['detection']}
+            </div>
+            <div style="font-size:.73rem;color:#64748b;margin-top:.2rem;padding-left:.6rem;">
+              <em>Emergency?</em> {_card['emergency']}
+            </div>
+          </details>
+          <div style="display:flex;gap:1.5rem;font-size:.71rem;color:#475569;margin-top:.45rem;
+                      flex-wrap:wrap;">
+            <span>🏗 {_card['campaign']}</span>
+            <span>🔧 {_card['intervention']}</span>
+            <span>💰 {_card['cost']}</span>
+            <span>⏱ {_card['downtime']}</span>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── Cost & downtime history ────────────────────────────────────────────────
+    section('COST & DOWNTIME HISTORY')
+    _cby = _jd['cost_by_year']
+    if not _cby.empty:
+        _jcol1, _jcol2 = st.columns(2)
+        with _jcol1:
+            _cfig = _px_j.bar(
+                _cby, x='year_of_field_life', y='cost',
+                labels={'year_of_field_life': 'Year of Field Life', 'cost': 'Intervention Cost ($)'},
+                template='plotly_dark', color_discrete_sequence=['#3b82f6'],
+            )
+            _cfig.update_layout(height=280, paper_bgcolor='#111827', plot_bgcolor='#0f172a',
+                                 margin=dict(l=40, r=10, t=20, b=40))
+            st.plotly_chart(_cfig, use_container_width=True)
+        with _jcol2:
+            _dtfig = _px_j.bar(
+                _cby, x='year_of_field_life', y='downtime',
+                labels={'year_of_field_life': 'Year of Field Life', 'downtime': 'Downtime (days)'},
+                template='plotly_dark', color_discrete_sequence=['#f59e0b'],
+            )
+            _dtfig.update_layout(height=280, paper_bgcolor='#111827', plot_bgcolor='#0f172a',
+                                  margin=dict(l=40, r=10, t=20, b=40))
+            st.plotly_chart(_dtfig, use_container_width=True)
+
+    # ── Decision path for one event ────────────────────────────────────────────
+    section('DECISION PATH')
+    st.caption('Select any event to see the exact chain of model decisions that produced it.')
+    _wt = _jd['wt']
+    _dp_options = [
+        f"Yr {int(r['year_of_field_life'])} · "
+        f"{r.get('display_name', r['component'])} · "
+        f"{r.get('trigger_type', '?')}"
+        for _, r in _wt.iterrows()
+    ]
+    if _dp_options:
+        _dp_idx = st.selectbox(
+            'Trace this event', range(len(_dp_options)),
+            format_func=lambda i: _dp_options[i],
+            key='journey_dp_sel',
+        )
+        _dp_row   = _wt.iloc[_dp_idx]
+        _dp_nodes = build_decision_path(_dp_row)
+
+        _dp_html_parts = []
+        for _ni, _node in enumerate(_dp_nodes):
+            _dp_html_parts.append(f"""
+            <div style="display:flex;flex-direction:column;align-items:center;margin:.15rem 0;">
+              <div style="border:2px solid {_node['color']};border-radius:8px;padding:.5rem 1.2rem;
+                          min-width:300px;max-width:480px;background:#111827;text-align:center;">
+                <div style="font-size:.62rem;color:#64748b;text-transform:uppercase;
+                            letter-spacing:.08em;">{_node['label']}</div>
+                <div style="font-size:.95rem;font-weight:700;color:{_node['color']};
+                            margin:.15rem 0;">{_node['value']}</div>
+                {('<div style="font-size:.7rem;color:#94a3b8;">' + _node['detail'] + '</div>') if _node.get('detail') else ''}
+                {('<div style="font-size:.68rem;font-weight:700;color:' + _node['color'] + ';margin-top:.15rem;">' + _node['outcome'] + '</div>') if _node.get('outcome') else ''}
+              </div>
+              {('<div style="color:#475569;font-size:1.1rem;line-height:1.2;">↓</div>') if _ni < len(_dp_nodes) - 1 else ''}
+            </div>
+            """)
+        st.markdown(
+            f'<div style="display:flex;flex-direction:column;align-items:center;'
+            f'padding:1rem 0;">{"".join(_dp_html_parts)}</div>',
+            unsafe_allow_html=True,
+        )
+
+
 # ── Tab dispatch ──────────────────────────────────────────────────────────────
 if 'overview' in T:
     with T['overview']:
@@ -2350,6 +2638,10 @@ if 'assumptions' in T:
 if 'trace' in T:
     with T['trace']:
         _render_trace()
+
+if 'journey' in T:
+    with T['journey']:
+        _render_journey()
 
 
 # ── Sidebar downloads ─────────────────────────────────────────────────────────
