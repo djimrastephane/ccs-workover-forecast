@@ -286,7 +286,7 @@ with st.sidebar:
         format_func=lambda x: _SCENARIO_LABELS[x],
     )
     n_simulations = st.select_slider(
-        'Monte Carlo Runs', options=[100, 250, 500, 1000, 2000], value=500,
+        'Monte Carlo Runs', options=[100, 250, 500, 1000, 2000, 5000, 10000], value=500,
     )
 
     st.markdown('<div class="sb-section">🔬 Intervention Threshold</div>', unsafe_allow_html=True)
