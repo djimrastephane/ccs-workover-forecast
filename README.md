@@ -24,6 +24,10 @@ It produces P10/P50/P90 workover demand, lifecycle cost distributions, campaign 
 
 ![Lifecycle Forecast](docs/screenshot_portfolio.png)
 
+**Scenario Comparison** — Side-by-side comparison of Base Case vs High Corrosion: scenario summary cards, lifecycle cost, and total workovers.
+
+![Scenario Comparison](docs/screenshot_scenario.png)
+
 **Economics** — Lifecycle cost waterfall, P10/P50/P90 cost distribution, cost by component, and annual cost fan chart.
 
 ![Economics](docs/screenshot_economics.png)

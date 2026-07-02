@@ -1377,7 +1377,9 @@ def _render_scenarios():
             mon = params.get('monitoring_program', 'standard')
             if mon != 'standard':
                 label = f'{label} ({mon} monitoring)'
-            st.session_state.scenario_results[label] = ls
+            _sr = dict(st.session_state.scenario_results)
+            _sr[label] = ls
+            st.session_state.scenario_results = _sr
             st.success(f'Added "{label}".')
     with col_b:
         if st.button('Clear all', use_container_width=True):
