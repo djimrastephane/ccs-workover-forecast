@@ -24,6 +24,10 @@ It produces P10/P50/P90 workover demand, lifecycle cost distributions, campaign 
 
 ![Lifecycle Forecast](docs/screenshot_portfolio.png)
 
+**Risk & Failure Modes** — 5×5 risk matrix with component likelihood/consequence positioning, top cost contributors, and failure probability heatmap across the lifecycle.
+
+![Risk & Failure Modes](docs/screenshot_risk.png)
+
 **Well Journey** — Single-well operational history: component health evolution, intervention timeline, and cost breakdown for one stochastic scenario.
 
 ![Well Journey](docs/screenshot_well_journey.png)
