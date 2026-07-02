@@ -82,10 +82,17 @@ jobs:
           expected = {'tubing', 'packer', 'gauge', 'fiber_optics',
                       'wellhead', 'tree', 'cement_barrier', 'casing', 'injectivity',
                       'ssv', 'casing_valve', 'control_line', 'tubing_hanger',
-                      'injection_flowmeter'}
+                      'injection_flowmeter', 'annular_pressure_monitor'}
           assert expected.issubset(comps), f'Missing components: {expected - comps}'
 
           assert 'reactive' in failure_df['trigger_type'].values, 'No reactive failures'
+
+          # APM detection boost: cement_barrier and casing should show boosted
+          # detection probability (0.60 and 0.50) alongside baseline values
+          cement_probs = set(failure_df[failure_df['component'] == 'cement_barrier']['detection_probability'].round(2).unique())
+          casing_probs = set(failure_df[failure_df['component'] == 'casing']['detection_probability'].round(2).unique())
+          assert 0.60 in cement_probs, f'APM boost not seen for cement_barrier (probs: {cement_probs})'
+          assert 0.50 in casing_probs, f'APM boost not seen for casing (probs: {casing_probs})'
 
           # Verify monitoring_program parameter works for all three tiers
           for tier in ('minimal', 'standard', 'comprehensive'):

@@ -31,22 +31,31 @@ _TRSV_ONLY = {'trsv', 'control_line'}
 _SEVERITY_MAP = {5: 'high', 4: 'high', 3: 'medium', 2: 'low', 1: 'low'}
 
 _FAILURE_MODES = {
-    'trsv':            'valve_failure',
-    'tubing':          'corrosion_leak',
-    'packer':          'seal_failure',
-    'gauge':           'sensor_failure',
-    'fiber_optics':    'signal_loss',
-    'wellhead':        'valve_failure',
-    'tree':            'seal_degradation',
-    'cement_barrier':  'micro_annulus',
-    'casing':          'integrity_loss',
-    'injectivity':     'scale_plugging',
-    'ssv':                  'valve_failure',
-    'casing_valve':         'seal_failure',
-    'control_line':         'hydraulic_leak',
-    'tubing_hanger':        'seal_failure',
-    'injection_flowmeter':  'sensor_failure',
+    'trsv':                    'valve_failure',
+    'tubing':                  'corrosion_leak',
+    'packer':                  'seal_failure',
+    'gauge':                   'sensor_failure',
+    'fiber_optics':            'signal_loss',
+    'wellhead':                'valve_failure',
+    'tree':                    'seal_degradation',
+    'cement_barrier':          'micro_annulus',
+    'casing':                  'integrity_loss',
+    'injectivity':             'scale_plugging',
+    'ssv':                     'valve_failure',
+    'casing_valve':            'seal_failure',
+    'control_line':            'hydraulic_leak',
+    'tubing_hanger':           'seal_failure',
+    'injection_flowmeter':     'sensor_failure',
+    'annular_pressure_monitor': 'signal_loss',
 }
+
+# Annular Pressure Monitor (APM / SCP) boosts detection of cement and casing
+# failures when functioning. Values are the effective detection probability
+# WITH the APM active; the conditional re-roll is computed per-event using
+# the actual baseline detection_probability already applied.
+# Ref: DOE/NETL-2020/2634 §3.1.2; UIC Class VI 40 CFR §146.89
+_APM_SENSITIVE = {'cement_barrier', 'casing'}
+_APM_BOOST     = {'cement_barrier': 0.60, 'casing': 0.50}
 
 _BARRIER_PRIORITY = {
     'safety':         'immediate',
@@ -299,5 +308,45 @@ def generate_all_failures(
         )['_rank'].idxmax()
         non_dup_idx = df.index[~has_both]
         df = df.loc[non_dup_idx.union(keep_idx)].reset_index(drop=True)
+
+    # ── APM cross-component detection boost ───────────────────────────────────
+    # When the Annular Pressure Monitor (SCP/APB) is functioning in a given
+    # (sim, well, year) it converts some previously-undetected cement_barrier
+    # and casing reactive failures to planned preventive events.
+    # The APM is "not functioning" in a year when it has itself failed that year.
+    # Conditional probability: P(detect | APM active, not detected by baseline)
+    #   = (boost_prob - base_prob) / (1 - base_prob)
+    apm_present = 'annular_pressure_monitor' in df['component'].values
+    sensitive_present = bool(_APM_SENSITIVE & set(df['component'].unique()))
+    if apm_present and sensitive_present:
+        apm_rows = df[df['component'] == 'annular_pressure_monitor']
+        apm_failed_keys = set(
+            zip(apm_rows['simulation_id'], apm_rows['well_id'], apm_rows['year'])
+        )
+        target_mask = (
+            df['component'].isin(_APM_SENSITIVE)
+            & (df['trigger_type'] == 'reactive')
+            & (~df['detected'])
+            & (~df['threshold_triggered'])
+        )
+        target_idx = df.index[target_mask]
+        if len(target_idx) > 0:
+            rows = df.loc[target_idx]
+            event_keys = list(zip(rows['simulation_id'], rows['well_id'], rows['year']))
+            apm_functioning = [k not in apm_failed_keys for k in event_keys]
+            boost_idx = target_idx[apm_functioning]
+            for comp, boost_prob in _APM_BOOST.items():
+                comp_idx = boost_idx[df.loc[boost_idx, 'component'] == comp]
+                if len(comp_idx) == 0:
+                    continue
+                base = df.loc[comp_idx, 'detection_probability'].values
+                cond = np.clip((boost_prob - base) / np.maximum(1.0 - base, 1e-6), 0.0, 1.0)
+                newly_detected = comp_idx[rng.random(len(comp_idx)) < cond]
+                if len(newly_detected) > 0:
+                    df.loc[newly_detected, 'detected'] = True
+                    df.loc[newly_detected, 'trigger_type'] = 'preventive'
+                    df.loc[newly_detected, 'immediate_or_deferred'] = 'deferred'
+                    df.loc[newly_detected, 'estimated_cost'] *= 0.80
+                    df.loc[newly_detected, 'detection_probability'] = boost_prob
 
     return df
