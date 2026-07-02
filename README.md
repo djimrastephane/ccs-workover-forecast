@@ -66,65 +66,7 @@ Then open http://localhost:8501 in your browser.
 
 ## Simulation pipeline
 
-```mermaid
-%%{init: {'theme': 'dark'}}%%
-flowchart TD
-    classDef inputNode  fill:#1e3a5f,stroke:#3b82f6,stroke-width:2px,color:#bfdbfe
-    classDef settings   fill:#1e3a5f,stroke:#60a5fa,stroke-width:2px,color:#bfdbfe,rx:20
-    classDef stage1     fill:#134e4a,stroke:#14b8a6,stroke-width:2px,color:#ccfbf1
-    classDef stage2     fill:#431407,stroke:#f97316,stroke-width:2px,color:#fed7aa
-    classDef stage3     fill:#422006,stroke:#f59e0b,stroke-width:2px,color:#fde68a
-    classDef stage4     fill:#3b0764,stroke:#a855f7,stroke-width:2px,color:#e9d5ff
-    classDef stage5     fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#bbf7d0
-    classDef outputNode fill:#1e1b4b,stroke:#818cf8,stroke-width:1px,color:#c7d2fe
-    classDef appNode    fill:#27272a,stroke:#e2e8f0,stroke-width:2px,color:#f4f4f5
-
-    subgraph INPUTS["📥  What goes in"]
-        F1["📊 Equipment reliability data\nComponent MTTF · monitoring detection rates\nFleet coverage — which wells have each component"]
-        F2["🔍 Monitoring programme\nMinimal · Standard · Comprehensive\nControls how often problems are caught before escalation"]
-        F3["💰 Cost data\nRig day-rates · repair cost by intervention type\nCO₂ handling premium · post-workover inspection"]
-        F4["⚙️ Scenario\nRisk environment: base case, high corrosion, legacy wells\nScales both failure likelihood and repair costs"]
-        UP(["🎛️ Simulation settings\nWells · operating life · Monte Carlo runs\nFleet coverage — fibre optics, flowmeters, CIV, etc."])
-    end
-
-    S1["🔧 Stage 1 — Setup\nLoad scenario multipliers and base cost data\nSet detection capability per monitoring level\nApply fleet coverage mask — uninstalled\ncomponents cannot fail or incur cost"]
-
-    S2["⚡ Stage 2 — Failure generation\nRun Monte Carlo scenarios in parallel\nEach well draws its own random failure timeline\nBathtub curve: higher risk early and near end-of-life\nEarly detection → planned repair, not emergency"]
-
-    S3["🚦 Stage 3 — Intervention decisions\nSafety-critical failures → immediate emergency response\nFlow or monitoring failures → deferred repair queue\nRepeat failure on same well → escalate to full workover\nTwo serious failures within 3 years → well treated as critical"]
-
-    S4["🏗️ Stage 4 — Campaign scheduling\nEmergency repairs → mobilise rig in the same year\nDeferred repairs → batch once enough wells accumulate\nor before the oldest queued item waits too long\nRig mobilisation cost shared across all campaign wells"]
-
-    S5["📈 Stage 5 — Cost aggregation\nSum repair + mobilisation + lost-injection costs\nper well, per year, across all scenarios\nReport P10 · P50 · P90 of the full distribution"]
-
-    subgraph OUTPUTS["📤  What comes out"]
-        O1["📋 Failure event log\nEvery failure · every well · every scenario"]
-        O2["📅 Campaign schedule\nTiming, size and cost of each workover campaign"]
-        O3["💹 Annual cost profile\nYear-by-year spend distribution"]
-        O4["📊 Lifecycle summary\nP10 · P50 · P90 total cost and peak demand"]
-        O5["🗺️ Campaign event map\nLinks each failure event to its campaign ID"]
-    end
-
-    APP["🖥️ Dashboard\nWorkover fan charts · risk matrix · campaign Gantt\nLifecycle economics · asset health · model QA\nAll results downloadable as CSV"]
-
-    INPUTS --> S1 --> S2 --> S3 --> S4 --> S5
-    S3 -.->|failure events| O1
-    S4 -.->|campaign log| O2
-    S4 -.->|event→campaign map| O5
-    S5 -.->|annual costs| O3
-    S5 -.->|lifecycle summary| O4
-    O1 & O2 & O3 & O4 & O5 --> APP
-
-    class F1,F2,F3,F4 inputNode
-    class UP settings
-    class S1 stage1
-    class S2 stage2
-    class S3 stage3
-    class S4 stage4
-    class S5 stage5
-    class O1,O2,O3,O4,O5 outputNode
-    class APP appNode
-```
+![Simulation Pipeline](docs/workflow.png)
 
 ---
 
