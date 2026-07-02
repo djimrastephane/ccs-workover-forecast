@@ -20,7 +20,7 @@ It produces P10/P50/P90 workover demand, lifecycle cost distributions, campaign 
 
 ## Demo
 
-<video src="https://github.com/djimrastephane/ccs-workover-forecast/raw/main/docs/demo.mp4" controls width="100%"></video>
+[![Demo](docs/screenshot_portfolio.png)](https://github.com/djimrastephane/ccs-workover-forecast/raw/main/docs/demo.mp4)
 
 ## Screenshots
 
