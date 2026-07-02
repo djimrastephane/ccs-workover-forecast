@@ -2464,16 +2464,31 @@ Derived from the configured First Injection Year in the sidebar. Both field-life
         return
 
     # ── Selectors ─────────────────────────────────────────────────────────────
-    _jc1, _jc2 = st.columns(2)
+    _jc1, _jc2 = st.columns([3, 1])
     with _jc1:
         _j_wells = sorted(simulation_trace['well_id'].unique().tolist())
         _j_well  = st.selectbox('Select Well', _j_wells, key='journey_well')
     with _jc2:
-        _j_sims = sorted(simulation_trace['simulation_id'].unique().tolist())[:50]
-        _j_sim  = st.selectbox('Simulation Run', _j_sims, key='journey_sim')
+        st.markdown('<div style="height:28px"></div>', unsafe_allow_html=True)
+        if st.button('Shuffle scenario', key='journey_shuffle', use_container_width=True):
+            st.session_state['journey_sim_id'] = None  # force re-roll
 
     _first_yr = int(params['first_injection_year'])
     _op_yrs   = int(params['operating_years'])
+
+    # Pick a simulation ID for the selected well; re-roll on shuffle or well change
+    _well_sims = sorted(
+        simulation_trace.loc[simulation_trace['well_id'] == str(_j_well), 'simulation_id'].unique().tolist()
+    )
+    _stored_sim = st.session_state.get('journey_sim_id')
+    _stored_well = st.session_state.get('journey_sim_well')
+    if _stored_sim is None or _stored_well != _j_well or _stored_sim not in _well_sims:
+        import random as _random
+        _j_sim = _random.choice(_well_sims)
+        st.session_state['journey_sim_id']   = _j_sim
+        st.session_state['journey_sim_well'] = _j_well
+    else:
+        _j_sim = _stored_sim
 
     _jd = build_well_journey(
         simulation_trace, campaign_log,
