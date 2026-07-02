@@ -63,7 +63,7 @@ def explain_peak_demand(annual_forecast, failure_df, params):
         lines.append(
             f"Year {peak_year} is in the **wear-out phase** (begins Year {wear_start} "
             f"= {int(operating_years*0.7)}% of field life). The bathtub curve applies an increasing "
-            f"multiplier up to **3.0×** at end of life, representing accelerating corrosion, fatigue, "
+            f"multiplier up to **1.8×** at end of life, representing accelerating corrosion, fatigue, "
             f"and injectivity decline."
         )
     elif peak_year <= 2:
