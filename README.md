@@ -24,6 +24,10 @@ It produces P10/P50/P90 workover demand, lifecycle cost distributions, campaign 
 
 ![Lifecycle Forecast](docs/screenshot_portfolio.png)
 
+**Economics** — Lifecycle cost waterfall, P10/P50/P90 cost distribution, cost by component, and annual cost fan chart.
+
+![Economics](docs/screenshot_economics.png)
+
 **Campaign Planning** — Expected campaigns per year by type, cost breakdown, deferred queue depth, and immediate vs deferred intervention split.
 
 ![Campaign Planning](docs/screenshot_campaign.png)
