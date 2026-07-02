@@ -20,9 +20,9 @@ It produces P10/P50/P90 workover demand, lifecycle cost distributions, campaign 
 
 ## Screenshots
 
-**Portfolio Overview** — P10/P50/P90 workover demand, lifecycle economics, and asset health after running the simulation.
+**Lifecycle Forecast** — P10/P50/P90 annual workover demand fan chart with bathtub curve and cost profile.
 
-![Portfolio Overview](docs/screenshot_portfolio.png)
+![Lifecycle Forecast](docs/screenshot_portfolio.png)
 
 **Well Journey** — Single-well operational history: component health evolution, intervention timeline, and cost breakdown for one stochastic scenario.
 
