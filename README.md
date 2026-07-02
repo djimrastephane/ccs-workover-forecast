@@ -18,6 +18,10 @@ It produces P10/P50/P90 workover demand, lifecycle cost distributions, campaign 
 
 ---
 
+## Demo
+
+https://github.com/djimrastephane/ccs-workover-forecast/raw/main/docs/demo.mp4
+
 ## Screenshots
 
 **Lifecycle Forecast** — P10/P50/P90 annual workover demand fan chart with bathtub curve and cost profile.
