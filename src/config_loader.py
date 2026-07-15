@@ -60,6 +60,14 @@ def load_stream_quality_config() -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def load_seismic_config() -> pd.DataFrame:
+    """Load induced-seismicity geology tiers (annual prob + casing/cement multipliers), indexed by tier."""
+    try:
+        return pd.read_csv(_path('seismic_config.csv')).set_index('tier')
+    except FileNotFoundError:
+        return pd.DataFrame()
+
+
 def load_monitoring_config() -> pd.DataFrame:
     """Load per-tier detection probability overrides (minimal / standard / comprehensive)."""
     try:

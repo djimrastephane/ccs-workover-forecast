@@ -63,7 +63,7 @@ def build_simulation_trace(
     for col in ['bernoulli_draw', 'cumulative_failure_probability',
                 'failure_occurred', 'detected', 'detection_probability',
                 'threshold_triggered', 'sampled_p10_mttf', 'sampled_p50_mttf', 'sampled_p90_mttf',
-                'start_age', 'effective_year']:
+                'start_age', 'effective_year', 'seismic_event_year']:
         if col not in trace.columns:
             trace[col] = pd.NA
 
@@ -75,7 +75,7 @@ def build_simulation_trace(
         'bathtub_multiplier', 'annual_failure_probability', 'cumulative_failure_probability',
         'bernoulli_draw', 'failure_occurred', 'detected', 'detection_probability',
         'barrier_class', 'can_defer', 'threshold_triggered',
-        'intervention_type', 'trigger_type', 'escalated',
+        'intervention_type', 'trigger_type', 'escalated', 'seismic_event_year',
         'campaign_id', 'campaign_type', 'campaign_year', 'campaign_size',
         'intervention_cost', 'downtime_days',
     ]

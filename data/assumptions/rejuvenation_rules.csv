@@ -20,3 +20,4 @@ casing_valve,light_intervention,0.2,92,API 6A,medium,Valve reseat; body and bore
 control_line,full_workover,0.05,100,operator standard,medium,New hydraulic control line installed with tubing; near-new
 tubing_hanger,full_workover,0.1,95,API 17D,medium,Seal replacement; hanger body retained
 injection_flowmeter,rigless_intervention,0.0,100,operator standard,high,Instrument swap; fully restored to as-new accuracy
+seismic_monitor,rigless_intervention,0.0,100,operator standard,high,Geophone / DAS array component replaced — fully restored

@@ -8,6 +8,7 @@ from src.config_loader import (
     load_component_assumptions, load_intervention_rules,
     load_cost_assumptions, load_scenario_config,
     load_assumption_quality, load_stream_quality_config,
+    load_seismic_config,
 )
 from src.qa import compute_qa_metrics, generate_qa_warnings
 from src.explainability import (
@@ -347,6 +348,50 @@ with st.sidebar:
     else:
         co2_stream_quality = 'pipeline'
 
+    st.markdown('<div class="sb-section">🌍 Induced Seismicity</div>', unsafe_allow_html=True)
+    _seis_cfg = load_seismic_config()
+    if not _seis_cfg.empty:
+        seismic_tier = st.selectbox(
+            'Seismic Setting',
+            options=list(_seis_cfg.index),
+            format_func=lambda t: str(_seis_cfg.loc[t, 'label']),
+            index=list(_seis_cfg.index).index('base') if 'base' in _seis_cfg.index else 0,
+            help=(
+                'Field-level induced/triggered seismicity (DOE/NETL-2020/2634 §3.1.3). '
+                'One event per simulation-year affects ALL wells simultaneously: fault '
+                'displacement can shear casing at the crossing and transient shock cracks '
+                'cement micro-annuli. Casing/cement failure probability is multiplied in '
+                'event years. Select "Not modelled" to disable.'
+            ),
+        )
+        _seis_default_pct = float(_seis_cfg.loc[seismic_tier, 'annual_seismic_prob']) * 100
+        seismic_casing_mult = float(_seis_cfg.loc[seismic_tier, 'casing_multiplier'])
+        seismic_cement_mult = float(_seis_cfg.loc[seismic_tier, 'cement_multiplier'])
+        if seismic_tier != 'none':
+            _seis_pct = st.number_input(
+                'Annual Seismic Event Probability (%)',
+                min_value=0.0, max_value=10.0,
+                value=_seis_default_pct, step=0.1,
+                key=f'seis_prob_{seismic_tier}',
+                help=(
+                    'Probability of a damaging seismic event per field-year. '
+                    'Defaults to the selected geology tier; override with '
+                    'site-specific hazard data.'
+                ),
+            )
+            annual_seismic_prob = _seis_pct / 100.0
+            st.caption(
+                f'Casing ×{seismic_casing_mult:.0f} · cement ×{seismic_cement_mult:.0f} '
+                'in seismic event years · detection 10% (70% with seismic monitor)'
+            )
+        else:
+            annual_seismic_prob = 0.0
+            st.caption('Seismicity disabled — casing/cement follow baseline reliability only.')
+    else:
+        seismic_tier = 'none'
+        annual_seismic_prob = 0.0
+        seismic_casing_mult, seismic_cement_mult = 7.0, 10.0
+
     st.markdown('<div class="sb-section">🔬 Intervention Threshold</div>', unsafe_allow_html=True)
     threshold_pct = st.select_slider(
         'Intervention Probability Threshold',
@@ -518,6 +563,9 @@ if run_btn:
             legacy_well_fraction=legacy_well_fraction,
             legacy_start_age=legacy_start_age,
             co2_stream_quality=co2_stream_quality,
+            annual_seismic_prob=annual_seismic_prob,
+            seismic_casing_multiplier=seismic_casing_mult,
+            seismic_cement_multiplier=seismic_cement_mult,
         )
         _sim_status.update(label='Simulation complete', state='complete', expanded=False)
 
@@ -551,6 +599,10 @@ if run_btn:
         legacy_well_fraction=legacy_well_fraction,
         legacy_start_age=legacy_start_age,
         co2_stream_quality=co2_stream_quality,
+        seismic_tier=seismic_tier,
+        annual_seismic_prob=annual_seismic_prob,
+        seismic_casing_multiplier=seismic_casing_mult,
+        seismic_cement_multiplier=seismic_cement_mult,
     )
     narrative = generate_executive_narrative(
         failure_df, annual_forecast, campaign_log, lifecycle_summary, params)
@@ -774,7 +826,7 @@ def _render_overview():
         thr = params.get('intervention_threshold', 0.90)
         if not failure_df.empty and 'trigger_type' in failure_df.columns:
             prev_count = (failure_df['trigger_type'] == 'preventive').sum()
-            react_count = (failure_df['trigger_type'] == 'reactive').sum()
+            react_count = failure_df['trigger_type'].isin(('reactive', 'seismic')).sum()
             prev_pct = prev_count / max(prev_count + react_count, 1) * 100
             thr_label = f'{thr*100:.0f}% — {prev_pct:.0f}% preventive'
         else:
@@ -2294,6 +2346,7 @@ def _render_trace():
             'calendar_year':              'Cal. Year',
             'start_age':                  'Start Age',
             'effective_year':             'Well Age',
+            'seismic_event_year':         'Seismic Yr?',
             'well_id':                    'Well',
             'component':                  'Component',
             'effective_mttf':             'Eff. MTTF (yrs)',
@@ -2351,7 +2404,7 @@ def _render_trace():
         if 'Barrier' in _disp.columns:
             _disp.insert(0, '🏷', _ft['barrier_class'].map(BARRIER_ICON).fillna('⚪'))
         if 'Trigger' in _disp.columns:
-            _trig_map = {'reactive': '⚠️', 'preventive': '✅'}
+            _trig_map = {'reactive': '⚠️', 'preventive': '✅', 'seismic': '🌋'}
             _disp.insert(1 if '🏷' in _disp.columns else 0, '▶', _ft['trigger_type'].map(_trig_map).fillna('❓'))
         if 'Campaign Type' in _disp.columns:
             _disp['Campaign Type'] = _ft['campaign_type'].map(
@@ -2611,6 +2664,11 @@ Derived from the configured First Injection Year in the sidebar. Both field-life
     _jk3.metric('Total Downtime',      f"{int(_jd['total_downtime'])} days")
     _jk4.metric('Reactive Events',     _jd['n_reactive'])
     _jk5.metric('Preventive Events',   _jd['n_preventive'])
+    if _jd.get('n_seismic', 0) > 0:
+        st.caption(
+            f"🌋 {_jd['n_seismic']} of the reactive events were seismic-triggered — "
+            'field-level events that struck all wells in the same year.'
+        )
 
     # ── Component health evolution ─────────────────────────────────────────────
     section('COMPONENT HEALTH EVOLUTION')

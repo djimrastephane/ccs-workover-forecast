@@ -27,6 +27,7 @@ BARRIER_COLOR = {
 TRIGGER_ICON = {
     'reactive':   '⚠️',
     'preventive': '✅',
+    'seismic':    '🌋',
 }
 CAMPAIGN_ICON = {
     'emergency':     '🚨',
@@ -156,6 +157,16 @@ def build_event_story_card(row: pd.Series) -> dict:
             f"{comp} cumulative failure probability reached the preventive intervention threshold. "
             "A planned intervention was scheduled before any reactive failure occurred."
         )
+    elif trigger == 'seismic':
+        what = (
+            f"A field-level seismic event in year {year_f} subjected {comp} to transient "
+            "shock and shear loading, causing failure. "
+            + ("Post-event inspection (stoplight protocol) identified the damage before "
+               "leakage escalated — the response was executed as a planned intervention."
+               if detected else
+               "The damage was not identified by post-event inspection and required an "
+               "unplanned emergency response.")
+        )
     elif fail_occ and detected:
         what = (
             f"Monitoring detected early-stage degradation in {comp} before functional failure. "
@@ -203,6 +214,16 @@ def build_event_story_card(row: pd.Series) -> dict:
             "Not applicable — this was a threshold-triggered preventive event. "
             "No reactive failure occurred; the intervention was scheduled proactively."
         )
+    elif trigger == 'seismic':
+        detection_txt = (
+            "Yes. The seismic monitoring array flagged the event and the mandatory "
+            "post-event inspection (40 CFR §146.89) located the damage — response "
+            "rescheduled as a planned intervention at 80% of reactive cost."
+            if detected else
+            "No. Seismic damage is sudden and subsurface — without a functioning "
+            "seismic monitoring array on this well, post-event detection probability "
+            "is only 10%."
+        )
     elif detected:
         detection_txt = (
             "Yes. The monitoring programme intercepted the degradation before functional failure, "
@@ -212,10 +233,13 @@ def build_event_story_card(row: pd.Series) -> dict:
         detection_txt = "No. The failure escalated before the monitoring layer could detect it."
 
     # ── Emergency assessment ───────────────────────────────────────────────────
-    if trigger == 'reactive' and not detected and barrier == 'safety':
+    if trigger in ('reactive', 'seismic') and not detected and barrier == 'safety':
         emergency_txt = (
-            "Yes. A reactive safety-barrier failure requires an immediate emergency response — "
-            "rig mobilisation cannot be deferred."
+            ("Yes. An undetected seismic safety-barrier failure requires an immediate "
+             "emergency response — rig mobilisation cannot be deferred.")
+            if trigger == 'seismic' else
+            ("Yes. A reactive safety-barrier failure requires an immediate emergency response — "
+             "rig mobilisation cannot be deferred.")
         )
     elif can_def:
         emergency_txt = "No. The intervention was deferred into a planned campaign, sharing mobilisation cost."
@@ -457,8 +481,9 @@ def build_well_journey(
 
     total_cost     = float(wt['intervention_cost'].sum()) if has_cost else 0.0
     total_downtime = float(wt['downtime_days'].sum())     if has_dt   else 0.0
-    n_reactive     = int((wt['trigger_type'] == 'reactive').sum())   if 'trigger_type' in wt.columns else 0
+    n_reactive     = int(wt['trigger_type'].isin(('reactive', 'seismic')).sum()) if 'trigger_type' in wt.columns else 0
     n_preventive   = int((wt['trigger_type'] == 'preventive').sum()) if 'trigger_type' in wt.columns else 0
+    n_seismic      = int((wt['trigger_type'] == 'seismic').sum())    if 'trigger_type' in wt.columns else 0
     ct_col         = wt.get('campaign_type', pd.Series(dtype=str))
     n_emergency    = int((ct_col == 'emergency').sum())
     peak_cost_yr   = (
@@ -479,6 +504,7 @@ def build_well_journey(
         'n_interventions':          len(wt),
         'n_reactive':               n_reactive,
         'n_preventive':             n_preventive,
+        'n_seismic':                n_seismic,
         'n_emergency':              n_emergency,
         'total_cost':               total_cost,
         'total_downtime':           total_downtime,

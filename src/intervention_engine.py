@@ -31,6 +31,12 @@ import pandas as pd
 FA_ESCALATABLE = {'injectivity', 'halite_plugging', 'carbonate_scaling',
                   'microbial_plugging'}
 
+# 'seismic' is a reactive subtype: an unplanned failure attributed to a
+# field-level seismic event. It follows the same urgency rules as 'reactive',
+# except that seismically DETECTED events (stoplight-protocol inspection
+# found the damage) are planned responses and stay deferrable.
+REACTIVE_TRIGGERS = ('reactive', 'seismic')
+
 
 def apply_intervention_decisions(
     failure_df: pd.DataFrame,
@@ -43,10 +49,17 @@ def apply_intervention_decisions(
     df = failure_df.copy()
 
     # -- Step 1: Barrier-hierarchy overrides ----------------------------------
-    # Only REACTIVE safety failures are forced to immediate. Preventive safety
-    # events (caught by inspection / monitoring) remain planned and deferrable.
+    # Only REACTIVE (incl. undetected seismic) safety failures are forced to
+    # immediate. Preventive safety events and detected seismic events (caught
+    # by inspection / monitoring) remain planned and deferrable.
+    detected_col = (
+        df['detected'].astype(bool) if 'detected' in df.columns
+        else pd.Series(False, index=df.index)
+    )
     safety_reactive_mask = (
-        (df['barrier_class'] == 'safety') & (df['trigger_type'] == 'reactive')
+        (df['barrier_class'] == 'safety')
+        & df['trigger_type'].isin(REACTIVE_TRIGGERS)
+        & (~detected_col)
     )
     df.loc[safety_reactive_mask, 'immediate_or_deferred'] = 'immediate'
 
@@ -75,7 +88,7 @@ def apply_intervention_decisions(
     if escalated_pairs:
         df['_pair'] = list(zip(df['simulation_id'], df['well_id']))
         is_escalated = df['_pair'].isin(escalated_pairs)
-        is_reactive  = df['trigger_type'] == 'reactive'
+        is_reactive  = df['trigger_type'].isin(REACTIVE_TRIGGERS)
         is_deferred  = df['immediate_or_deferred'] == 'deferred'
         is_non_safety = df['barrier_class'] != 'safety'
         df.loc[is_escalated & is_reactive & is_deferred & is_non_safety,
@@ -89,9 +102,10 @@ def apply_intervention_decisions(
 
 
 def _find_escalated_wells(df: pd.DataFrame, window: int, threshold: int) -> set:
-    # Only count reactive medium/high failures for the escalation trigger
+    # Only count reactive (incl. seismic) medium/high failures for the trigger
     medium_high = df[
-        (df['severity'].isin(['medium', 'high'])) & (df['trigger_type'] == 'reactive')
+        (df['severity'].isin(['medium', 'high']))
+        & (df['trigger_type'].isin(REACTIVE_TRIGGERS))
     ]
     if medium_high.empty:
         return set()

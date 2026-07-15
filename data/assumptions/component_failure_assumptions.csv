@@ -18,3 +18,4 @@ control_line,Hydraulic Control Line,downhole_safety,safety,10,25,4,full_workover
 tubing_hanger,Tubing Hanger Seal,surface,safety,30,70,4,full_workover,false,true,2500000,14,false,false,0.50,1.0,bathtub,
 injection_flowmeter,CO2 Injection Flow Meter,monitoring,monitoring,8,22,3,rigless_intervention,true,false,300000,3,true,false,0.70,1.0,bathtub,
 annular_pressure_monitor,Annular Pressure Monitor,monitoring,monitoring,10,25,3,rigless_intervention,true,false,50000,1,false,false,0.85,1.0,bathtub,
+seismic_monitor,Seismic Monitoring Array,monitoring,monitoring,12,30,2,rigless_intervention,true,false,120000,1,false,false,0.95,1.0,bathtub,

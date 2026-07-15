@@ -15,6 +15,7 @@ ccs-workover-forecast/
 │   │   ├── assumption_quality.csv              # Source quality, confidence, sensitivity register
 │   │   ├── cost_assumptions.csv                # Per-event costs, CO₂ uplift, post-workover verification
 │   │   ├── co2_stream_quality.csv              # Contaminant tiers → injectivity / corrosion multipliers
+│   │   ├── seismic_config.csv                  # Geology tiers → seismic probability + casing/cement multipliers
 │   │   └── scenario_config.csv
 │   ├── observations/
 │   │   └── observed_events.csv                 # Real field failure/degradation events for calibration

@@ -50,7 +50,22 @@ _FAILURE_MODES = {
     'tubing_hanger':           'seal_failure',
     'injection_flowmeter':     'sensor_failure',
     'annular_pressure_monitor': 'signal_loss',
+    'seismic_monitor':         'signal_loss',
 }
+
+# Induced / triggered seismicity (DOE/NETL-2020/2634 §3.1.2–3.1.3).
+# A seismic event is FIELD-LEVEL correlated: one (simulation, year) draw
+# affects every well simultaneously — fault displacement shears casing at
+# the crossing (Exhibit 3-2 pathway e) and transient shock cracks cement
+# micro-annuli. Failures attributed to a seismic year carry
+# trigger_type='seismic' (a reactive subtype).
+# Detection: seismic damage is sudden and subsurface — 0.10 baseline; a
+# functioning seismic_monitor raises it to 0.70 (stoplight protocol:
+# post-event mandatory inspection per 40 CFR §146.89 finds the damage
+# before leakage escalates, converting the response to a planned one).
+_SEISMIC_DEFAULT_MULTIPLIERS = {'casing': 7.0, 'cement_barrier': 10.0}
+_SEISMIC_DETECTION_BASE      = 0.10
+_SEISMIC_DETECTION_MONITORED = 0.70
 
 # CO₂ stream quality sensitivity (DOE/NETL-2020/2634 §3.1.1 Exhibit 3-1).
 # Contaminants (chiefly H₂S) act through two distinct paths:
@@ -88,7 +103,7 @@ _OUTPUT_COLUMNS = [
     'sampled_p10_mttf', 'sampled_p50_mttf', 'sampled_p90_mttf',
     'cumulative_failure_probability', 'bernoulli_draw',
     'failure_occurred', 'detected', 'detection_probability', 'threshold_triggered',
-    'start_age', 'effective_year',
+    'start_age', 'effective_year', 'seismic_event_year',
 ]
 
 
@@ -120,6 +135,8 @@ def generate_all_failures(
     legacy_start_age: int = 15,
     stream_injectivity_multiplier: float = 1.0,
     stream_corrosion_multiplier: float = 1.0,
+    annual_seismic_prob: float = 0.0,
+    seismic_multipliers: dict | None = None,
 ) -> pd.DataFrame:
     """
     Generate all failure events across n_simulations, n_wells, n_years.
@@ -144,6 +161,13 @@ def generate_all_failures(
     components respectively (CO₂ stream quality — co-sequestered
     contaminants). Applied on top of the scenario failure_prob_multiplier,
     keeping stream quality orthogonal to reservoir-fluid aggressiveness.
+
+    annual_seismic_prob > 0 enables the field-level induced-seismicity
+    trigger: one Bernoulli draw per (simulation, year) affects all wells at
+    once, multiplying casing / cement_barrier annual probability by
+    seismic_multipliers (default 7× / 10×) in event years. Failures in those
+    years are labelled trigger_type='seismic'. With the default 0.0, no rng
+    draws are consumed and results are bit-identical to the pre-seismic model.
     """
     n_wells = n_injectors + n_monitoring
     well_ids = np.array(
@@ -172,6 +196,18 @@ def generate_all_failures(
     }
     lc_bathtub = np.stack([_lc_by_age[a] for a in start_ages])  # (n_wells, n_years)
     _lc_by_shape: dict[str, np.ndarray] = {}
+
+    # Field-level seismic event matrix — one draw per (simulation, year),
+    # shared by all wells. Drawn only when seismicity is enabled so a
+    # disabled run consumes no rng and reproduces prior results exactly.
+    seismic_mults = seismic_multipliers if seismic_multipliers is not None \
+        else dict(_SEISMIC_DEFAULT_MULTIPLIERS)
+    seismic_events = None
+    if annual_seismic_prob > 0:
+        seismic_events = (
+            rng.random((n_simulations, operating_years)) < annual_seismic_prob
+        )                                                      # (n_sims, n_years)
+    seismic_monitor_wells: set | None = None  # filled while processing the component
 
     frames = []
 
@@ -240,6 +276,17 @@ def generate_all_failures(
             0.95,
         )
 
+        # -- Seismic amplification (field-level, correlated across wells) -----
+        # In a (simulation, year) with a seismic event, casing / cement
+        # failure probability is multiplied for EVERY well simultaneously.
+        comp_is_seismic = seismic_events is not None and comp_name in seismic_mults
+        if comp_is_seismic:
+            adj_prob = np.where(
+                seismic_events[:, np.newaxis, :],
+                np.minimum(adj_prob * float(seismic_mults[comp_name]), 0.95),
+                adj_prob,
+            )
+
         # -- Compute cumulative failure probability once (used for trace and threshold) --
         cum_fp_3d = cumulative_failure_probability(
             adj_prob.reshape(n_simulations * n_wells, operating_years)
@@ -256,11 +303,18 @@ def generate_all_failures(
         # Fixed randomly per component for the whole run (seeded by rng);
         # set penetration_rate < 1.0 in the CSV to model partial fleet coverage.
         if penetration_rate < 1.0:
-            n_equipped = max(1, round(penetration_rate * n_wells))
+            n_equipped = (
+                max(1, round(penetration_rate * n_wells)) if penetration_rate > 0 else 0
+            )
             not_equipped = rng.permutation(n_wells)[n_equipped:]
             failures[:, not_equipped, :] = False
         else:
             not_equipped = np.empty(0, dtype=int)
+
+        # Track which wells carry a seismic monitor — the post-loop seismic
+        # detection boost applies only to equipped wells.
+        if comp_name == 'seismic_monitor':
+            seismic_monitor_wells = set(well_ids) - set(well_ids[not_equipped])
 
         sim_idx, well_idx, year_idx = np.where(failures)
 
@@ -269,15 +323,31 @@ def generate_all_failures(
             ev_cost = np.full(n_ev, cost)
             ev_trigger = np.full(n_ev, 'reactive', dtype=object)
             ev_imm = np.full(n_ev, imm_or_def, dtype=object)
+            ev_det_prob = np.full(n_ev, detection_prob)
+
+            # Failures of a seismic-sensitive component in a seismic
+            # (simulation, year) are attributed to the seismic event.
+            ev_seismic = (
+                seismic_events[sim_idx, year_idx]
+                if comp_is_seismic else np.zeros(n_ev, dtype=bool)
+            )
 
             # Detection: some reactive failures are caught by monitoring /
             # inspection before escalating. Detected → planned, deferred, 80% cost.
+            # Seismic damage is sudden and subsurface — detection drops to the
+            # seismic baseline (a functioning seismic_monitor raises it later).
             detected_arr = np.zeros(n_ev, dtype=bool)
             if detection_prob > 0:
                 detected_arr = rng.random(n_ev) < detection_prob
-                ev_trigger[detected_arr] = 'preventive'
-                ev_imm[detected_arr] = 'deferred'
-                ev_cost[detected_arr] *= 0.80
+            if ev_seismic.any():
+                detected_arr[ev_seismic] = (
+                    rng.random(int(ev_seismic.sum())) < _SEISMIC_DETECTION_BASE
+                )
+                ev_det_prob[ev_seismic] = _SEISMIC_DETECTION_BASE
+                ev_trigger[ev_seismic] = 'seismic'
+            ev_trigger[detected_arr & ~ev_seismic] = 'preventive'
+            ev_imm[detected_arr] = 'deferred'
+            ev_cost[detected_arr] *= 0.80
 
             frames.append(pd.DataFrame({
                 'simulation_id':         sim_idx + 1,
@@ -307,10 +377,11 @@ def generate_all_failures(
                 'bernoulli_draw':                  draws[sim_idx, well_idx, year_idx],
                 'failure_occurred':                True,
                 'detected':                        detected_arr,
-                'detection_probability':           detection_prob,
+                'detection_probability':           ev_det_prob,
                 'threshold_triggered':             False,
                 'start_age':                       start_ages[well_idx],
                 'effective_year':                  year_idx + 1 + start_ages[well_idx],
+                'seismic_event_year':              ev_seismic,
             }))
 
         # -- Preventive events -- threshold-based (per well) ------------------
@@ -365,6 +436,10 @@ def generate_all_failures(
                 'threshold_triggered':             True,
                 'start_age':                       start_ages[well_rep],
                 'effective_year':                  yr_rep + start_ages[well_rep],
+                'seismic_event_year':              (
+                    seismic_events[sim_rep, yr_rep - 1]
+                    if comp_is_seismic else False
+                ),
             }))
 
     if not frames:
@@ -426,5 +501,38 @@ def generate_all_failures(
                     df.loc[newly_detected, 'immediate_or_deferred'] = 'deferred'
                     df.loc[newly_detected, 'estimated_cost'] *= 0.80
                     df.loc[newly_detected, 'detection_probability'] = boost_prob
+
+    # ── Seismic monitor detection boost (stoplight protocol) ──────────────────
+    # A functioning seismic_monitor triggers a mandatory post-event inspection
+    # (40 CFR §146.89) that catches seismic-triggered casing / cement damage
+    # before leakage escalates: detection 0.10 → 0.70. Detected events stay
+    # trigger_type='seismic' but become planned (deferred, 80% cost).
+    # The boost requires the well to be EQUIPPED with a monitor (penetration
+    # rate) and the monitor not to have itself failed that year.
+    seis_target_mask = (df['trigger_type'] == 'seismic') & (~df['detected'])
+    if seis_target_mask.any() and seismic_monitor_wells:
+        mon_rows = df[df['component'] == 'seismic_monitor']
+        mon_failed_keys = set(
+            zip(mon_rows['simulation_id'], mon_rows['well_id'], mon_rows['year'])
+        )
+        target_idx = df.index[seis_target_mask]
+        rows = df.loc[target_idx]
+        event_keys = list(zip(rows['simulation_id'], rows['well_id'], rows['year']))
+        mon_functioning = [
+            (w in seismic_monitor_wells) and ((s, w, y) not in mon_failed_keys)
+            for s, w, y in event_keys
+        ]
+        boost_idx = target_idx[mon_functioning]
+        if len(boost_idx) > 0:
+            cond = (
+                (_SEISMIC_DETECTION_MONITORED - _SEISMIC_DETECTION_BASE)
+                / (1.0 - _SEISMIC_DETECTION_BASE)
+            )
+            newly_detected = boost_idx[rng.random(len(boost_idx)) < cond]
+            if len(newly_detected) > 0:
+                df.loc[newly_detected, 'detected'] = True
+                df.loc[newly_detected, 'immediate_or_deferred'] = 'deferred'
+                df.loc[newly_detected, 'estimated_cost'] *= 0.80
+                df.loc[newly_detected, 'detection_probability'] = _SEISMIC_DETECTION_MONITORED
 
     return df

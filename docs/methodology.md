@@ -99,6 +99,21 @@ Both stack multiplicatively with the scenario `failure_prob_multiplier`, keeping
 
 ---
 
+## Induced seismicity
+
+Induced/triggered seismicity (DOE/NETL-2020/2634 §3.1.2–3.1.3) is the model's only **field-level correlated** failure trigger: one Bernoulli draw per (simulation, year) — at the sidebar-set `annual_seismic_prob` — affects **all wells simultaneously**, unlike the per-well independent trials used everywhere else. In a seismic event year:
+
+- **Casing** annual failure probability is multiplied (default 7×) — fault displacement can shear casing at the crossing (Exhibit 3-2, leakage pathway *e*).
+- **Cement barrier** probability is multiplied (default 10×) — cement is more brittle under transient shock, cracking micro-annuli.
+
+Failures attributed to a seismic year carry `trigger_type = 'seismic'` — a reactive subtype that follows the same urgency rules (undetected seismic safety failures go to emergency campaigns; because the event is field-correlated, several wells typically share one emergency mobilisation in that year).
+
+**Detection — the stoplight protocol.** Seismic damage is sudden and subsurface: baseline detection is only 10%. A functioning **Seismic Monitoring Array** on the well raises it to 70% — representing the mandatory post-event inspection (40 CFR §146.89 mechanical integrity testing) locating the damage before leakage escalates, converting the response to a planned intervention (deferred, 80% cost). The array must be installed (its `penetration_rate`) and must not have itself failed that year.
+
+Geology tiers in `seismic_config.csv`: stable (0.3%/yr, 3×/5×), reference (1.0%/yr, 7×/10×), fault-proximal (3.0%/yr, 15×/20×), plus a "not modelled" tier that disables the mechanism entirely and reproduces the pre-seismic model bit-for-bit at the same seed.
+
+---
+
 ## Escalation rule
 
 If a well accumulates ≥ 2 medium-or-high severity **reactive** failures within any 3-year window, its remaining reactive deferred events are promoted to immediate priority. Preventive events are never escalated — they are already scheduled optimally.

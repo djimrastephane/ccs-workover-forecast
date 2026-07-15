@@ -84,7 +84,7 @@ jobs:
                       'hydrate_control', 'halite_plugging', 'carbonate_scaling',
                       'microbial_plugging',
                       'ssv', 'casing_valve', 'control_line', 'tubing_hanger',
-                      'injection_flowmeter', 'annular_pressure_monitor'}
+                      'injection_flowmeter', 'annular_pressure_monitor', 'seismic_monitor'}
           assert expected.issubset(comps), f'Missing components: {expected - comps}'
           assert 'injectivity' not in comps, 'Legacy injectivity component should be split into sub-modes'
 
@@ -255,4 +255,56 @@ jobs:
 
           print(f'P50 cost: pipeline=\${cp/1e6:.0f}M  industrial=\${ci/1e6:.0f}M  sour=\${cs/1e6:.0f}M')
           print('Injectivity sub-modes + stream quality PASSED')
+          "
+
+      - name: Validate seismic failure mode (issue 1)
+        run: |
+          python -c "
+          import pandas as pd
+          from src.simulation import run_simulation
+
+          kw = dict(n_simulations=100, n_injectors=20, n_monitoring=5,
+                    operating_years=30, seed=42)
+
+          # Disabled (default) — no seismic triggers, no seismic year flags
+          f0, _, _, ls0, _ = run_simulation(**kw)
+          assert 'seismic' not in set(f0['trigger_type'].unique())
+          assert not f0['seismic_event_year'].any()
+
+          # Enabled — field-level correlated failures on casing/cement only
+          fs, clog, _, ls5, _ = run_simulation(**kw, annual_seismic_prob=0.05,
+                                               seismic_casing_multiplier=15,
+                                               seismic_cement_multiplier=20)
+          seis = fs[fs['trigger_type'] == 'seismic']
+          assert not seis.empty, 'no seismic events at 5%/yr'
+          assert set(seis['component'].unique()) <= {'casing', 'cement_barrier'}
+          assert seis['seismic_event_year'].all()
+
+          # Correlation: seismic (sim, year) cells hit many wells at once
+          cc = fs[fs['component'].isin(['casing', 'cement_barrier'])
+                  & fs['failure_occurred'].astype(bool)]
+          g = cc.groupby(['simulation_id', 'year']).agg(
+              n=('well_id', 'size'), s=('seismic_event_year', 'max'))
+          m_seis, m_norm = g[g['s']]['n'].mean(), g[~g['s']]['n'].mean()
+          assert m_seis > 2.5 * m_norm, f'no correlation: {m_seis:.1f} vs {m_norm:.1f}'
+
+          # Cost ordering and urgency rules
+          assert ls0['p50_lifecycle_cost'] < ls5['p50_lifecycle_cost']
+          und = seis[~seis['detected'].astype(bool)]
+          det = seis[seis['detected'].astype(bool)]
+          assert (und['immediate_or_deferred'] == 'immediate').all()
+          assert (det['immediate_or_deferred'] == 'deferred').all()
+
+          # Seismic monitor detection uplift (0.10 baseline -> 0.70 monitored)
+          f_no, _, _, _, _ = run_simulation(**kw, annual_seismic_prob=0.05,
+                                            seismic_casing_multiplier=15,
+                                            seismic_cement_multiplier=20,
+                                            component_penetration_rates={'seismic_monitor': 0.0})
+          d_mon = fs[fs['trigger_type'] == 'seismic']['detected'].mean()
+          d_no  = f_no[f_no['trigger_type'] == 'seismic']['detected'].mean()
+          assert d_no < 0.20 and d_mon > 0.50, f'detection uplift broken: {d_no:.2f} / {d_mon:.2f}'
+
+          print(f'seismic events/sim: {len(seis)/100:.1f}; correlation {m_seis:.1f} vs {m_norm:.1f}')
+          print(f'detection: monitored={d_mon:.2f} unmonitored={d_no:.2f}')
+          print('Seismic failure mode PASSED')
           "

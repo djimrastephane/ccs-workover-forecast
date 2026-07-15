@@ -37,6 +37,9 @@ def run_simulation(
     legacy_well_fraction: float = 0.0,
     legacy_start_age: int = 15,
     co2_stream_quality: str = 'pipeline',
+    annual_seismic_prob: float = 0.0,
+    seismic_casing_multiplier: float = 7.0,
+    seismic_cement_multiplier: float = 10.0,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, pd.DataFrame]:
     """
     Orchestrate the full Monte Carlo simulation pipeline.
@@ -153,6 +156,11 @@ def run_simulation(
         legacy_start_age=legacy_start_age,
         stream_injectivity_multiplier=stream_injectivity_multiplier,
         stream_corrosion_multiplier=stream_corrosion_multiplier,
+        annual_seismic_prob=annual_seismic_prob,
+        seismic_multipliers={
+            'casing':         seismic_casing_multiplier,
+            'cement_barrier': seismic_cement_multiplier,
+        },
     )
 
     if failure_df.empty:

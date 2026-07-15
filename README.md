@@ -76,7 +76,7 @@ Then open http://localhost:8501 in your browser.
 |---|---|
 | Monte Carlo uncertainty | P10/P50/P90 workover demand across up to 10,000 simulation runs |
 | Bathtub curve lifecycle | Infant mortality, useful life, and wear-out phases modelled explicitly |
-| 19 well components | Across 4 barrier classes; flow assurance split into 4 geochemical sub-modes (hydrate, halite, carbonate, microbial) |
+| 20 well components | Across 4 barrier classes; flow assurance split into 4 geochemical sub-modes (hydrate, halite, carbonate, microbial) |
 | Barrier hierarchy | Safety failures are always immediate; production and monitoring events are deferrable |
 | Campaign batching | Deferred interventions batched by fleet size or maximum wait time |
 | Scenario comparison | 6 built-in scenarios: base case, high corrosion, legacy well conversion, and others |

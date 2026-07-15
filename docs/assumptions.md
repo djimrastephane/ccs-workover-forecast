@@ -33,7 +33,7 @@ All assumptions live in `data/assumptions/`. Edit the CSVs to change reliability
 
 ## Component MTTF database
 
-Nineteen components modelled across four barrier classes, covering the taxonomy in the NZTC/DNV CCS Wells Technology Roadmap (2025). Flow assurance is split into four geochemical sub-modes per DOE/NETL-2020/2634 Exhibit 3-1:
+Twenty components modelled across four barrier classes, covering the taxonomy in the NZTC/DNV CCS Wells Technology Roadmap (2025). Flow assurance is split into four geochemical sub-modes per DOE/NETL-2020/2634 Exhibit 3-1:
 
 | Component | Barrier class | P10 MTTF | P90 MTTF | Intervention type | Detection prob (standard tier) | Notes |
 |---|---|---|---|---|---|---|
@@ -56,6 +56,7 @@ Nineteen components modelled across four barrier classes, covering the taxonomy 
 | Fiber Optics | Monitoring | 12 yr | 26 yr | Full workover | 85% | conventional permanent installation strapped to tubing; replacement requires pulling the tubing string |
 | CO₂ Injection Flow Meter | Monitoring | 8 yr | 22 yr | Rigless | 70% | injector_only; MMV compliance |
 | Annular Pressure Monitor | Monitoring | 10 yr | 25 yr | Rigless | 85% | SCP/APB surveillance; boosts cement/casing detection while functioning |
+| Seismic Monitoring Array | Monitoring | 12 yr | 30 yr | Rigless | 95% | Geophone/DAS array; raises seismic-triggered casing/cement detection 10% → 70% while functioning (stoplight protocol) |
 
 Safety barriers (TRSV, Cement, Casing, SSV, CIV, Tubing Hanger) carry longer MTTF values reflecting their role as the last line of defence — failures are rare, high-consequence events, not routine cost drivers. Detection probability is low for downhole safety barriers because defects (micro-annuli, casing corrosion) develop below the surface and are hard to identify without integrity testing programmes.
 
@@ -87,6 +88,21 @@ Safety barriers (TRSV, Cement, Casing, SSV, CIV, Tubing Hanger) carry longer MTT
 | Raw / sour gas stream | > 200 ppm | 1.8× | 2.5× |
 
 The injectivity multiplier applies to the four flow-assurance sub-modes (pore-space competition, relative-permeability loss, amplified scaling). The corrosion multiplier applies to casing, cement barrier, tubing, injection packer, and tubing hanger seal (sulphurous/carbonic acid attack on carbon steel, cement, and elastomers).
+
+---
+
+## Induced seismicity
+
+`seismic_config.csv` — geology tiers for the field-level seismic trigger (DOE/NETL-2020/2634 §3.1.3). The annual probability can be overridden in the sidebar with site-specific hazard data.
+
+| Tier | Annual event probability | Casing multiplier | Cement multiplier |
+|---|---|---|---|
+| Not modelled | 0%/yr | — | — |
+| Stable geology | 0.3%/yr | 3× | 5× |
+| Reference case | 1.0%/yr | 7× | 10× |
+| Fault proximity | 3.0%/yr | 15× | 20× |
+
+Seismic-triggered failure detection is 10% without a functioning Seismic Monitoring Array and 70% with one. All seismic parameters are expert judgement flagged low-confidence in `assumption_quality.csv` — no quantitative fragility curves exist for CCS wellbores.
 
 ---
 

@@ -66,19 +66,15 @@ def _process_simulation(
             deferred_year = year_df[year_df['immediate_or_deferred'] == 'deferred']
 
             if not immediate_df.empty:
-                # Emergency: reactive safety-barrier failures — highest urgency,
-                # but all in the same year can share one mobilisation.
-                emergency = immediate_df[
+                # Emergency: reactive (incl. seismic) safety-barrier failures —
+                # highest urgency, but all in the same year share one mobilisation.
+                _em_mask = (
                     (immediate_df['barrier_class'] == 'safety') &
-                    (immediate_df['trigger_type'] == 'reactive')
-                ]
+                    (immediate_df['trigger_type'].isin(('reactive', 'seismic')))
+                )
+                emergency = immediate_df[_em_mask]
                 # Urgent: all other immediate events (escalated production, etc.)
-                urgent = immediate_df[
-                    ~(
-                        (immediate_df['barrier_class'] == 'safety') &
-                        (immediate_df['trigger_type'] == 'reactive')
-                    )
-                ]
+                urgent = immediate_df[~_em_mask]
 
                 if not emergency.empty:
                     campaign_counter += 1
