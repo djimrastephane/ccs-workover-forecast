@@ -91,7 +91,7 @@ Then open http://localhost:8501 in your browser.
 
 | Document | Purpose |
 |---|---|
-| [walkthrough.html](docs/walkthrough.html) | Illustrated field guide to the app for engineers new to CCS — the problem, the inputs, the methodology, how to read the results. GitHub shows this as raw source; download it and open in a browser (or view via [htmlpreview.github.io](https://htmlpreview.github.io/?https://github.com/djimrastephane/ccs-workover-forecast/blob/main/docs/walkthrough.html)) to see it rendered. |
+| [walkthrough.html](docs/walkthrough.html) | Illustrated field guide to the app for engineers new to CCS — the problem, the inputs, the methodology, how to read the results. Download and open in a browser to view. |
 | [methodology.md](docs/methodology.md) | Reliability model, bathtub curve, failure detection, intervention engine, campaign logic |
 | [assumptions.md](docs/assumptions.md) | Component MTTF database, barrier classes, scenario multipliers, monitoring configuration |
 | [calibration.md](docs/calibration.md) | Field calibration equations, confidence weighting, drift alerts, maturity score |
