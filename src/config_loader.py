@@ -52,6 +52,14 @@ def load_assumption_quality() -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def load_stream_quality_config() -> pd.DataFrame:
+    """Load CO₂ stream quality tiers (injectivity / corrosion multipliers), indexed by tier."""
+    try:
+        return pd.read_csv(_path('co2_stream_quality.csv')).set_index('tier')
+    except FileNotFoundError:
+        return pd.DataFrame()
+
+
 def load_monitoring_config() -> pd.DataFrame:
     """Load per-tier detection probability overrides (minimal / standard / comprehensive)."""
     try:

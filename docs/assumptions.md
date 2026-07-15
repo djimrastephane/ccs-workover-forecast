@@ -26,12 +26,14 @@ All assumptions live in `data/assumptions/`. Edit the CSVs to change reliability
 | `trsv_only` | Component only enabled when TRSV/SCSSV is active (offshore config) |
 | `detection_prob` | Probability a developing failure is caught before becoming a reactive emergency |
 | `penetration_rate` | Fraction of wells in the fleet that have this component installed (0.0–1.0). Default `1.0` means every well is equipped. Set to e.g. `0.6` to model a mixed fleet where only 60% of wells have this component. The equipped subset is drawn randomly from the fleet and held fixed across all simulations within a run. |
+| `lifecycle_shape` | Hazard-vs-time profile: `bathtub` (default, well-age-driven, offset by `start_age`), or one of the CO₂-injection-driven shapes `infant` / `plateau` / `wear_out` used by the geochemical injectivity sub-modes (see [methodology.md](methodology.md)) |
+| `display_group` | Optional grouping label — the four injectivity sub-modes share `Injectivity / Flow Assurance` |
 
 ---
 
 ## Component MTTF database
 
-Fifteen components modelled across four barrier classes, covering the taxonomy in the NZTC/DNV CCS Wells Technology Roadmap (2025):
+Nineteen components modelled across four barrier classes, covering the taxonomy in the NZTC/DNV CCS Wells Technology Roadmap (2025). Flow assurance is split into four geochemical sub-modes per DOE/NETL-2020/2634 Exhibit 3-1:
 
 | Component | Barrier class | P10 MTTF | P90 MTTF | Intervention type | Detection prob (standard tier) | Notes |
 |---|---|---|---|---|---|---|
@@ -46,10 +48,14 @@ Fifteen components modelled across four barrier classes, covering the taxonomy i
 | Wellhead | Production | 45 yr | 75 yr | Light | 60% | |
 | Tree | Production | 40 yr | 70 yr | Light | 55% | |
 | Hydraulic Control Line | Safety | 10 yr | 25 yr | Full workover | 85% | trsv_only; line runs outside tubing string — replacement requires pulling tubing |
-| Injectivity / Flow Assurance | Flow assurance | 8 yr | 20 yr | Rigless (escalates) | 50% | injector_only |
+| Injectivity · Hydrate Control | Flow assurance | 2 yr | 8 yr | Rigless ($80k methanol/glycol) | 75% | injector_only; `infant` shape — startup/shutdown driven, recurs after interruptions; never escalates to workover |
+| Injectivity · Halite Plugging | Flow assurance | 5 yr | 15 yr | Rigless ($120k water wash, escalates) | 65% | injector_only; `plateau` shape; Sleipner/AquiStore field evidence |
+| Injectivity · Carbonate Scaling | Flow assurance | 10 yr | 25 yr | Rigless ($250k acid job, escalates) | 55% | injector_only; `wear_out` shape; site-dependent — set penetration_rate < 1.0 for sandstone-dominated sites |
+| Injectivity · Microbial Plugging | Flow assurance | 15 yr | 35 yr | Rigless ($180k antimicrobial, escalates) | 40% | injector_only; `wear_out` shape; lowest-confidence MTTF (DOE qualitative only) |
 | P/T Gauge | Monitoring | 15 yr | 26 yr | Rigless | 90% | |
 | Fiber Optics | Monitoring | 12 yr | 26 yr | Full workover | 85% | conventional permanent installation strapped to tubing; replacement requires pulling the tubing string |
 | CO₂ Injection Flow Meter | Monitoring | 8 yr | 22 yr | Rigless | 70% | injector_only; MMV compliance |
+| Annular Pressure Monitor | Monitoring | 10 yr | 25 yr | Rigless | 85% | SCP/APB surveillance; boosts cement/casing detection while functioning |
 
 Safety barriers (TRSV, Cement, Casing, SSV, CIV, Tubing Hanger) carry longer MTTF values reflecting their role as the last line of defence — failures are rare, high-consequence events, not routine cost drivers. Detection probability is low for downhole safety barriers because defects (micro-annuli, casing corrosion) develop below the surface and are hard to identify without integrity testing programmes.
 
@@ -67,6 +73,20 @@ Safety barriers (TRSV, Cement, Casing, SSV, CIV, Tubing Hanger) carry longer MTT
 | High Corrosion | 1.8× | 1.3× | Aggressive CO₂ corrosion; higher intervention complexity |
 | Offshore High-Cost | 1.2× | 1.6× | Deepwater or harsh environment |
 | Legacy Well Conversion | 2.5× | 1.4× | Converted abandoned O&G wellbore — material incompatibility, unknown construction history; SCSSV disabled; per PMC10407664 |
+
+---
+
+## CO₂ stream quality
+
+`co2_stream_quality.csv` — contaminant tiers for the injected CO₂ stream (DOE/NETL-2020/2634 §3.1.1 Exhibit 3-1). A static per-project input set by the capture source, orthogonal to the scenario multiplier (which represents reservoir-fluid aggressiveness).
+
+| Tier | H₂S | Injectivity multiplier | Corrosion multiplier |
+|---|---|---|---|
+| Pipeline grade | < 10 ppm | 1.0× | 1.0× |
+| Industrial grade | 10–200 ppm | 1.3× | 1.5× |
+| Raw / sour gas stream | > 200 ppm | 1.8× | 2.5× |
+
+The injectivity multiplier applies to the four flow-assurance sub-modes (pore-space competition, relative-permeability loss, amplified scaling). The corrosion multiplier applies to casing, cement barrier, tubing, injection packer, and tubing hanger seal (sulphurous/carbonic acid attack on carbon steel, cement, and elastomers).
 
 ---
 

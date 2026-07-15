@@ -14,7 +14,7 @@ Effective factor   = 1 + confidence × (calibration_factor − 1)
 Calibrated MTTF    = base_MTTF / effective_factor
 ```
 
-where `base_rate = 1 − exp(−1 / mode_MTTF)` and `bathtub_mult(t)` is the lifecycle phase multiplier for year *t* (1.5× infant mortality years 1–2; 1.0× useful life; ramping to 1.8× wear-out over the final 30% of design life).
+where `base_rate = 1 − exp(−1 / mode_MTTF)` and `bathtub_mult(t)` is the component's own lifecycle multiplier for year *t* — the standard bathtub curve for mechanical components (1.5× infant mortality years 1–2; 1.0× useful life; ramping to 1.8× wear-out over the final 30% of design life), or the component's `lifecycle_shape` (infant / plateau / wear_out) for the geochemical injectivity sub-modes. The exposure sum is computed per shape, so an early-life observation window weights an infant-shaped sub-mode's expected count correctly.
 
 ---
 

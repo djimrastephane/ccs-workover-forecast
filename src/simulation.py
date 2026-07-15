@@ -7,6 +7,7 @@ from .config_loader import (
     load_cost_assumptions,
     load_scenario_config,
     load_monitoring_config,
+    load_stream_quality_config,
 )
 from .failure_generator import generate_all_failures
 from .bundling import apply_co_location_discount
@@ -35,6 +36,7 @@ def run_simulation(
     field_id: str | None = None,
     legacy_well_fraction: float = 0.0,
     legacy_start_age: int = 15,
+    co2_stream_quality: str = 'pipeline',
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, pd.DataFrame]:
     """
     Orchestrate the full Monte Carlo simulation pipeline.
@@ -73,6 +75,14 @@ def run_simulation(
         failure_prob_multiplier = 1.0
         cost_multiplier = 1.0
         scssv_enabled = True
+
+    # ── CO₂ stream quality → injectivity / corrosion multipliers ─────────────
+    stream_injectivity_multiplier = 1.0
+    stream_corrosion_multiplier = 1.0
+    stream_cfg = load_stream_quality_config()
+    if not stream_cfg.empty and co2_stream_quality in stream_cfg.index:
+        stream_injectivity_multiplier = float(stream_cfg.loc[co2_stream_quality, 'injectivity_multiplier'])
+        stream_corrosion_multiplier = float(stream_cfg.loc[co2_stream_quality, 'corrosion_multiplier'])
 
     # ── Apply monitoring program → override detection_prob per component ──────
     monitoring_cfg = load_monitoring_config()
@@ -141,6 +151,8 @@ def run_simulation(
         intervention_threshold=intervention_threshold,
         legacy_well_fraction=legacy_well_fraction,
         legacy_start_age=legacy_start_age,
+        stream_injectivity_multiplier=stream_injectivity_multiplier,
+        stream_corrosion_multiplier=stream_corrosion_multiplier,
     )
 
     if failure_df.empty:

@@ -96,6 +96,11 @@ def _post_intervention_health(
     return round(min(cap, restored), 1)
 
 
+# Flow-assurance modes whose repeat failures escalate rigless -> workover
+# (mirrors intervention_engine.FA_ESCALATABLE; hydrate_control never escalates)
+_FA_ESCALATABLE = {'injectivity', 'halite_plugging', 'carbonate_scaling',
+                   'microbial_plugging'}
+
 # Components where full_workover is required by design (not escalation)
 _INHERENTLY_WORKOVER_NOTE = {
     'fiber_optics':  'Fiber optic cable is installed with the tubing string — retrieval requires a full rig workover by design.',
@@ -224,9 +229,10 @@ def build_event_story_card(row: pd.Series) -> dict:
     interv_note = ''
     if interv == 'full_workover' and comp_key in _INHERENTLY_WORKOVER_NOTE:
         interv_note = _INHERENTLY_WORKOVER_NOTE[comp_key]
-    elif interv == 'full_workover' and comp_key == 'injectivity':
+    elif interv == 'full_workover' and comp_key in _FA_ESCALATABLE:
         interv_note = (
-            'Escalated from rigless to full workover (repeat flow-assurance failure on this well).'
+            'Escalated from rigless to full workover (repeat failure of this '
+            'flow-assurance mode on this well).'
         )
 
     # ── Campaign summary ───────────────────────────────────────────────────────

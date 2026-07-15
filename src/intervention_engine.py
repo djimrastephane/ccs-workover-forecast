@@ -7,7 +7,8 @@ Barrier classes:
   safety        -- TRSV, Cement, Casing
   production    -- Tubing, Packer, Wellhead, Tree -> can batch
   monitoring    -- Gauge, Fiber Optics -> deferrable
-  flow_assurance -- Injectivity -> rigless first; escalate on repeat failures
+  flow_assurance -- Injectivity sub-modes -> rigless first; persistent
+                    formation-damage modes escalate on repeat failures
 
 Barrier hierarchy (applies to REACTIVE failures only):
   safety reactive    -> always immediate (undetected failures require emergency response)
@@ -20,6 +21,15 @@ Escalation rule:
   immediate. Preventive events are never escalated (they are already planned).
 """
 import pandas as pd
+
+# Flow-assurance modes that escalate rigless -> full workover on repeat
+# failures of the SAME mode on the same well (persistent formation damage).
+# hydrate_control is excluded: hydrate events are operational (startup /
+# shutdown driven), remediated at the wellhead, and recur by design — a
+# repeat hydrate never justifies a rig workover.
+# ('injectivity' retained for backward compat with pre-split assumption CSVs.)
+FA_ESCALATABLE = {'injectivity', 'halite_plugging', 'carbonate_scaling',
+                  'microbial_plugging'}
 
 
 def apply_intervention_decisions(
@@ -45,15 +55,15 @@ def apply_intervention_decisions(
     df.loc[monitoring_mask, 'immediate_or_deferred'] = 'deferred'
 
     # -- Step 2: Flow-assurance escalation -- rigless first, then workover ----
-    fa_mask = df['component'] == 'injectivity'
+    # Repeat failures of the same persistent mode on the same well escalate.
+    # Sort by year so "repeat" is chronological — reactive and threshold-
+    # preventive events are generated in separate frames, so raw row order
+    # does not follow event time.
+    fa_mask = df['component'].isin(FA_ESCALATABLE)
     if fa_mask.any():
-        fa_repeat = (
-            df[fa_mask]
-            .groupby(['simulation_id', 'well_id'])
-            .cumcount()
-        )
-        escalate_to_wo = fa_repeat >= 1
-        escalate_idx = df[fa_mask].index[escalate_to_wo]
+        fa = df[fa_mask].sort_values('year', kind='stable')
+        fa_repeat = fa.groupby(['simulation_id', 'well_id', 'component']).cumcount()
+        escalate_idx = fa.index[fa_repeat >= 1]
         df.loc[escalate_idx, 'intervention_type'] = 'full_workover'
         df.loc[escalate_idx, 'immediate_or_deferred'] = 'deferred'
 

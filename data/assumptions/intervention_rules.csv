@@ -6,4 +6,7 @@ cement_barrier,micro_annulus,high,full_workover,high_priority,21,Regulatory repo
 wellhead_tree,valve_failure,medium,light_intervention,deferrable,3,Surface repair or valve replacement — rigless
 downhole_gauge,sensor_failure,low,rigless_intervention,deferrable,1,Wireline retrieval and replacement
 scssv,valve_malfunction,medium,rigless_intervention,immediate,2,Safety-critical — must be addressed promptly offshore
-injectivity_impairment,scale_plugging,medium,rigless_intervention,deferrable,5,Chemical squeeze treatment — escalate to workover if severe
+hydrate_control,hydrate_formation,medium,rigless_intervention,deferrable,1,Methanol/glycol injection at wellhead — operational treatment; does not escalate
+halite_plugging,halite_precipitation,medium,rigless_intervention,deferrable,2,Water wash to dissolve near-wellbore halite — escalate to workover if repeated
+carbonate_scaling,carbonate_precipitation,medium,rigless_intervention,deferrable,3,Strong acid injection — escalate to workover if repeated
+microbial_plugging,microbial_growth,medium,rigless_intervention,deferrable,2,Antimicrobial chemical treatment — escalate to workover if repeated

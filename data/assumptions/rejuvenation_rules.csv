@@ -7,8 +7,13 @@ wellhead,light_intervention,0.3,90,NORSOK D-001,medium,Sealing elements replaced
 tree,light_intervention,0.3,90,NORSOK D-001,medium,Valve seats/seals replaced; body service history retained
 cement_barrier,full_workover,0.4,85,IEAGHG 2011 FMEA,low,Squeeze/remediation — partial channel healing; porous matrix remains
 casing,full_workover,0.5,80,ISO 11960,low,Patch repair — corroded zone bypassed but not replaced
-injectivity,rigless_intervention,0.0,100,operator standard,high,Flow restoration via chemical or mechanical treatment — as-new injectivity
-injectivity,full_workover,0.0,100,operator standard,high,Full access for scale removal / perforation re-gun — fully restored
+hydrate_control,rigless_intervention,0.0,100,operator standard,high,Methanol/glycol treatment fully dissolves hydrate plug — as-new; recurrence risk is operational (startup/shutdown) not residual
+halite_plugging,rigless_intervention,0.0,100,AquiStore field evidence,high,Water wash dissolves near-wellbore halite — as-new injectivity until dry-out re-accumulates
+halite_plugging,full_workover,0.0,100,operator standard,high,Full access wash and perforation re-gun — fully restored
+carbonate_scaling,rigless_intervention,0.1,95,Mountaineer CCS II,medium,Acid job dissolves carbonate cement in pore throats; deep formation precipitation not fully reachable
+carbonate_scaling,full_workover,0.0,100,operator standard,medium,Full access for scale removal / perforation re-gun — fully restored
+microbial_plugging,rigless_intervention,0.2,90,DOE/NETL-2020/2634 (qualitative),low,Antimicrobial treatment suppresses colonies; biofilm matrix partially persists and regrowth is expected
+microbial_plugging,full_workover,0.1,95,DOE/NETL-2020/2634 (qualitative),low,Full access treatment; deep-formation microbial community not fully removed
 trsv,rigless_intervention,0.2,95,API 11D1,high,TRSV refurbishment on wireline; minor residual spring fatigue
 ssv,rigless_intervention,0.1,98,API 6A,high,Surface replacement unit — near-new condition
 casing_valve,light_intervention,0.2,92,API 6A,medium,Valve reseat; body and bore retained

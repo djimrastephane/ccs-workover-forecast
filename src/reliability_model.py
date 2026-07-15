@@ -30,26 +30,71 @@ def mttf_to_annual_prob(mttf: np.ndarray) -> np.ndarray:
 
 # ── Bathtub curve ─────────────────────────────────────────────────────────────
 
-def lifecycle_multiplier_vector(operating_years: int, start_age: int = 0) -> np.ndarray:
+LIFECYCLE_SHAPES = ('bathtub', 'infant', 'plateau', 'wear_out')
+
+
+def lifecycle_multiplier_vector(
+    operating_years: int, start_age: int = 0, shape: str = 'bathtub'
+) -> np.ndarray:
     """
     Return shape (operating_years,) of lifecycle multipliers.
 
-    Phase 1 — Infant mortality (years 1-2): 1.5×
-      Installation damage, faulty gauges, poor packer setting.
-    Phase 2 — Useful life (years 3 to 70% of life): 1.0×
-      Random, uncorrelated failures.
-    Phase 3 — Wear-out (final 30% of life): increasing from 1.0× to 1.8×
-      Corrosion, fatigue, elastomer degradation, injectivity decline.
-      Linear ramp avoids a cliff at end of life; models gradual degradation.
+    'bathtub' (default — mechanical/well-age-driven degradation):
+      Phase 1 — Infant mortality (years 1-2): 1.5×
+        Installation damage, faulty gauges, poor packer setting.
+      Phase 2 — Useful life (years 3 to 70% of life): 1.0×
+        Random, uncorrelated failures.
+      Phase 3 — Wear-out (final 30% of life): increasing from 1.0× to 1.8×
+        Corrosion, fatigue, elastomer degradation.
+        Linear ramp avoids a cliff at end of life; models gradual degradation.
+      start_age offsets the well's position on the curve: a converted legacy
+      well with start_age=20 evaluates effective years 21..20+N instead of
+      1..N, so it skips infant mortality and enters the wear-out ramp early.
+      Phase boundaries stay anchored to the field design life; effective
+      years beyond design life hold at the 1.8× wear-out ceiling.
 
-    start_age offsets the well's position on the bathtub curve: a converted
-    legacy well with start_age=20 evaluates effective years 21..20+N instead
-    of 1..N, so it skips infant mortality and enters the wear-out ramp early.
-    Phase boundaries stay anchored to the field design life (operating_years);
-    effective years beyond design life hold at the 1.8× wear-out ceiling.
+    Injection-driven shapes (geochemical flow-assurance sub-modes; DOE/NETL-
+    2020/2634 Exhibit 3-1). These mechanisms begin at CO₂ injection start,
+    not well construction, so start_age is intentionally ignored — a
+    converted legacy well has the same hydrate/halite/scaling exposure clock
+    as a new well:
+      'infant'   — hydrate formation: 2.0× at startup (year 1), declining
+                   linearly to 1.0× by year 5, flat thereafter.
+      'plateau'  — halite precipitation: ramps 0.8× → 1.2× over the first
+                   40% of field life as near-wellbore dry-out accumulates,
+                   then holds at the plateau.
+      'wear_out' — carbonate scaling / microbial plugging: 1.0× useful life,
+                   then the standard wear-out ramp to 1.8× (no infant phase).
     """
+    if shape not in LIFECYCLE_SHAPES:
+        raise ValueError(f'Unknown lifecycle shape: {shape!r} (expected one of {LIFECYCLE_SHAPES})')
+
     wear_start = max(3, int(operating_years * 0.70))
     mult = np.ones(operating_years)
+
+    if shape == 'infant':
+        for yr in range(operating_years):
+            year = yr + 1  # injection year — start_age does not apply
+            mult[yr] = 2.0 - 0.25 * (year - 1) if year < 5 else 1.0
+        return mult
+
+    if shape == 'plateau':
+        ramp_end = max(2, int(operating_years * 0.40))
+        for yr in range(operating_years):
+            year = yr + 1  # injection year — start_age does not apply
+            frac = min((year - 1) / max(ramp_end - 1, 1), 1.0)
+            mult[yr] = 0.8 + frac * 0.4
+        return mult
+
+    if shape == 'wear_out':
+        for yr in range(operating_years):
+            year = yr + 1  # injection year — start_age does not apply
+            if year >= wear_start:
+                frac = (year - wear_start) / max(operating_years - wear_start, 1)
+                mult[yr] = 1.0 + min(frac, 1.0) * 0.8
+        return mult
+
+    # 'bathtub'
     for yr in range(operating_years):
         year = yr + 1 + start_age  # effective age on the bathtub curve, 1-based
         if year <= 2:

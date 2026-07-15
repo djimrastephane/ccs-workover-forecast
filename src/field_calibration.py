@@ -100,16 +100,21 @@ def compute_calibration_factors(
     n_wells_observed = len(well_info)
     total_well_years = float(well_info['well_years'].sum())
 
-    # Bathtub-weighted exposure: Σ bathtub_mult(t) across all observed well-years.
-    # This is component-agnostic — multiply by base_rate per component below.
-    lc = lifecycle_multiplier_vector(field_design_life)
-    bathtub_exposure = 0.0
-    for _, well in well_info.iterrows():
-        n_yrs = int(well['well_years'])
-        idxs  = np.arange(n_yrs)
-        # Clamp to design life; beyond it, use the final wear-out multiplier
-        mults = np.where(idxs < len(lc), lc[np.minimum(idxs, len(lc) - 1)], lc[-1])
-        bathtub_exposure += float(mults.sum())
+    # Lifecycle-weighted exposure: Σ lifecycle_mult(t) across all observed
+    # well-years, computed per lifecycle shape so that e.g. an infant-shaped
+    # sub-mode's expected count reflects its early-life concentration.
+    def _shape_exposure(shape: str) -> float:
+        lc = lifecycle_multiplier_vector(field_design_life, shape=shape)
+        total = 0.0
+        for _, well in well_info.iterrows():
+            n_yrs = int(well['well_years'])
+            idxs  = np.arange(n_yrs)
+            # Clamp to design life; beyond it, use the final multiplier
+            mults = np.where(idxs < len(lc), lc[np.minimum(idxs, len(lc) - 1)], lc[-1])
+            total += float(mults.sum())
+        return total
+
+    _exposure_by_shape: dict[str, float] = {}
 
     # Observed failure/degradation counts per component
     fail_mask = obs['event_type'].isin(_CALIBRABLE_EVENTS)
@@ -128,8 +133,13 @@ def compute_calibration_factors(
         P90       = float(comp_row['P90_MTTF'])
         mode_mttf = (P10 + P90) / 2.0
 
+        shape = comp_row.get('lifecycle_shape', 'bathtub')
+        shape = shape if isinstance(shape, str) and shape else 'bathtub'
+        if shape not in _exposure_by_shape:
+            _exposure_by_shape[shape] = _shape_exposure(shape)
+
         base_rate         = 1.0 - np.exp(-1.0 / mode_mttf)
-        expected_failures = base_rate * bathtub_exposure
+        expected_failures = base_rate * _exposure_by_shape[shape]
 
         n_obs = obs_counts.get(comp, 0)
 
@@ -155,7 +165,7 @@ def compute_calibration_factors(
             'recommended_mttf':    round(recommended_mttf, 1),
             'n_wells_observed':    n_wells_observed,
             'total_well_years':    round(total_well_years, 1),
-            'bathtub_exposure':    round(bathtub_exposure, 1),
+            'bathtub_exposure':    round(_exposure_by_shape[shape], 1),
         })
 
     return pd.DataFrame(rows)

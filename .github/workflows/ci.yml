@@ -80,10 +80,13 @@ jobs:
 
           comps = set(failure_df['component'].unique())
           expected = {'tubing', 'packer', 'gauge', 'fiber_optics',
-                      'wellhead', 'tree', 'cement_barrier', 'casing', 'injectivity',
+                      'wellhead', 'tree', 'cement_barrier', 'casing',
+                      'hydrate_control', 'halite_plugging', 'carbonate_scaling',
+                      'microbial_plugging',
                       'ssv', 'casing_valve', 'control_line', 'tubing_hanger',
                       'injection_flowmeter', 'annular_pressure_monitor'}
           assert expected.issubset(comps), f'Missing components: {expected - comps}'
+          assert 'injectivity' not in comps, 'Legacy injectivity component should be split into sub-modes'
 
           assert 'reactive' in failure_df['trigger_type'].values, 'No reactive failures'
 
@@ -198,4 +201,58 @@ jobs:
 
           print(f'P50 workovers: all-new={wn:.0f}  mixed-50%={wm:.0f}  all-legacy={wl:.0f}')
           print('Legacy fleet age offset PASSED')
+          "
+
+      - name: Validate injectivity sub-modes and CO2 stream quality (issues 3, 4)
+        run: |
+          python -c "
+          import numpy as np
+          from src.reliability_model import lifecycle_multiplier_vector
+          from src.simulation import run_simulation
+
+          # Lifecycle shapes (issue 3)
+          inf = lifecycle_multiplier_vector(30, shape='infant')
+          pla = lifecycle_multiplier_vector(30, shape='plateau')
+          wo  = lifecycle_multiplier_vector(30, shape='wear_out')
+          assert inf[0] == 2.0 and (inf[4:] == 1.0).all(), 'infant shape wrong'
+          assert abs(pla[0] - 0.8) < 1e-9 and abs(pla[-1] - 1.2) < 1e-9, 'plateau shape wrong'
+          assert (wo[:20] == 1.0).all() and abs(wo[-1] - 1.8) < 1e-9, 'wear_out shape wrong'
+          # Injection-driven shapes ignore start_age
+          assert np.array_equal(inf, lifecycle_multiplier_vector(30, start_age=20, shape='infant'))
+
+          kw = dict(n_simulations=50, n_injectors=16, n_monitoring=4,
+                    operating_years=30, seed=42)
+          fdf, _, _, _, _ = run_simulation(**kw)
+          submodes = {'hydrate_control', 'halite_plugging', 'carbonate_scaling', 'microbial_plugging'}
+          assert submodes <= set(fdf['component'].unique()), 'sub-modes missing'
+
+          # Sub-modes are injector-only; hydrate starts at 2.0x and never escalates
+          for sm in submodes:
+              assert set(fdf[fdf['component'] == sm]['well_type'].unique()) <= {'injector'}
+          hyd = fdf[fdf['component'] == 'hydrate_control']
+          assert np.isclose(hyd[hyd['year'] == 1]['lifecycle_multiplier'], 2.0).all()
+          esc = fdf[fdf['component'].isin(submodes) & (fdf['intervention_type'] == 'full_workover')]
+          assert not esc.empty, 'no flow-assurance escalation seen'
+          assert 'hydrate_control' not in set(esc['component']), 'hydrate must never escalate'
+
+          # CO2 stream quality ordering (issue 4)
+          kw2 = dict(n_simulations=150, n_injectors=20, n_monitoring=5,
+                     operating_years=30, seed=42)
+          f_p, _, _, ls_p, _ = run_simulation(**kw2, co2_stream_quality='pipeline')
+          _,   _, _, ls_i, _ = run_simulation(**kw2, co2_stream_quality='industrial')
+          f_s, _, _, ls_s, _ = run_simulation(**kw2, co2_stream_quality='sour')
+          cp, ci, cs = (ls_p['p50_lifecycle_cost'], ls_i['p50_lifecycle_cost'],
+                        ls_s['p50_lifecycle_cost'])
+          assert cp < ci < cs, f'stream quality ordering violated: {cp:.0f}/{ci:.0f}/{cs:.0f}'
+
+          # Multipliers hit only the sensitive components
+          bp_p = f_p.groupby('component')['base_probability'].median()
+          bp_s = f_s.groupby('component')['base_probability'].median()
+          ratio = (bp_s / bp_p).dropna()
+          assert ratio['gauge'] < 1.05 and ratio['wellhead'] < 1.05, 'insensitive component shifted'
+          assert ratio['halite_plugging'] > 1.5, 'injectivity multiplier not applied'
+          assert ratio['tubing'] > 2.0, 'corrosion multiplier not applied'
+
+          print(f'P50 cost: pipeline=\${cp/1e6:.0f}M  industrial=\${ci/1e6:.0f}M  sour=\${cs/1e6:.0f}M')
+          print('Injectivity sub-modes + stream quality PASSED')
           "

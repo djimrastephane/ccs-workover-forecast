@@ -1,27 +1,27 @@
 field_id,country,well_id,well_type,component,install_year,event_year,calendar_year,event_type,trigger_type,intervention_type,campaign_type,severity,detected,detected_by,inspection_type,cost_actual,downtime_days,notes
-FIELD_A,UK,INJ-001,injector,injectivity,2030,2032,2032,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,185000,5,Early scale buildup at Year 2 — acid stimulation required
+FIELD_A,UK,INJ-001,injector,carbonate_scaling,2030,2032,2032,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,185000,5,Early scale buildup at Year 2 — acid stimulation required
 FIELD_A,UK,MON-001,monitoring,gauge,2030,2033,2033,failure,reactive,rigless_intervention,deferred,low,true,telemetry,diagnostics,95000,3,Electronics failure from temperature exceedance
 FIELD_A,UK,INJ-003,injector,tubing,2030,2035,2035,failure,reactive,full_workover,emergency,high,false,none,none,3100000,22,Internal CO2 corrosion — higher rate than modelled
 FIELD_A,UK,INJ-001,injector,tubing,2030,2035,2035,failure,reactive,full_workover,emergency,high,false,none,none,3050000,20,Second tubing failure same year — formation water interaction
-FIELD_A,UK,INJ-002,injector,injectivity,2030,2036,2036,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,210000,6,Same scale mechanism as INJ-001 Year 2
+FIELD_A,UK,INJ-002,injector,carbonate_scaling,2030,2036,2036,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,210000,6,Same scale mechanism as INJ-001 Year 2
 FIELD_A,UK,INJ-004,injector,fiber_optics,2030,2038,2038,failure,reactive,full_workover,deferred,medium,false,none,none,2600000,18,DTS signal loss — conduit integrity failure
 FIELD_A,UK,INJ-001,injector,packer,2030,2040,2040,failure,reactive,full_workover,emergency,high,false,none,none,2800000,19,Seal failure during injection pressure test at Year 10
 FIELD_A,UK,MON-002,monitoring,gauge,2030,2041,2041,failure,reactive,rigless_intervention,deferred,low,true,telemetry,none,88000,2,Power supply failure
-FIELD_A,UK,INJ-005,injector,injectivity,2030,2042,2042,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,195000,5,Third injector requiring acid stimulation
+FIELD_A,UK,INJ-005,injector,carbonate_scaling,2030,2042,2042,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,195000,5,Third injector requiring acid stimulation
 FIELD_A,UK,INJ-002,injector,control_line,2030,2043,2043,failure,reactive,full_workover,emergency,high,false,none,none,2750000,14,Hydraulic control line leak — CO2 accelerated corrosion
 FIELD_A,UK,INJ-003,injector,ssv,2030,2044,2044,failure,reactive,rigless_intervention,deferred,medium,true,pressure_test,none,210000,4,Valve seat erosion detected during routine pressure test
-FIELD_B,Netherlands,INJ-B01,injector,injectivity,2032,2034,2034,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,170000,4,Formation damage from clay swelling — early onset
+FIELD_B,Netherlands,INJ-B01,injector,halite_plugging,2032,2034,2034,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,170000,4,Formation damage from clay swelling — early onset
 FIELD_B,Netherlands,INJ-B02,injector,tubing,2032,2037,2037,failure,reactive,full_workover,emergency,high,false,none,none,2950000,20,CO2 corrosion — rate higher than DNV models predicted
 FIELD_B,Netherlands,MON-B01,monitoring,gauge,2032,2038,2038,failure,reactive,rigless_intervention,deferred,low,true,telemetry,diagnostics,92000,3,Sensor drift beyond calibration limits
 FIELD_B,Netherlands,INJ-B01,injector,packer,2032,2040,2040,failure,reactive,full_workover,emergency,high,false,none,none,3050000,21,Packer seal failure — trace H2S contamination in CO2 stream
-FIELD_B,Netherlands,INJ-B03,injector,injectivity,2032,2042,2042,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,190000,5,Second stimulation campaign — persistent near-wellbore damage
+FIELD_B,Netherlands,INJ-B03,injector,halite_plugging,2032,2042,2042,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,190000,5,Second stimulation campaign — persistent near-wellbore damage
 FIELD_B,Netherlands,INJ-B02,injector,casing_valve,2032,2043,2043,failure,reactive,light_intervention,deferred,medium,false,none,none,520000,6,Actuator failure from corrosion — manual override required
 FIELD_C,Canada,INJ-C01,injector,tubing,2015,2019,2019,failure,reactive,full_workover,emergency,high,false,none,none,2200000,18,CO2 corrosion exacerbated by formation water interaction at Year 4
-FIELD_C,Canada,INJ-C02,injector,injectivity,2015,2020,2020,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,155000,4,Acid stimulation — early injectivity decline observed
+FIELD_C,Canada,INJ-C02,injector,carbonate_scaling,2015,2020,2020,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,155000,4,Acid stimulation — early injectivity decline observed
 FIELD_C,Canada,MON-C01,monitoring,gauge,2015,2021,2021,failure,reactive,rigless_intervention,deferred,low,true,telemetry,diagnostics,78000,2,Battery failure — no redundancy in early completion design
 FIELD_C,Canada,INJ-C01,injector,packer,2015,2022,2022,failure,reactive,full_workover,emergency,high,false,none,none,2400000,17,Packer set lost during pressure cycling — repeat of UK field finding
 FIELD_C,Canada,INJ-C03,injector,tubing,2015,2022,2022,failure,reactive,full_workover,emergency,high,false,none,none,2350000,16,Second tubing failure — same CO2 corrosion mechanism as INJ-C01
-FIELD_C,Canada,INJ-C03,injector,injectivity,2015,2023,2023,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,168000,4,Third injector requiring stimulation
-FIELD_C,Canada,INJ-C04,injector,injectivity,2015,2023,2023,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,162000,4,Fourth injector — same formation damage pattern
+FIELD_C,Canada,INJ-C03,injector,carbonate_scaling,2015,2023,2023,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,168000,4,Third injector requiring stimulation
+FIELD_C,Canada,INJ-C04,injector,carbonate_scaling,2015,2023,2023,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,162000,4,Fourth injector — same formation damage pattern
 FIELD_C,Canada,INJ-C02,injector,wellhead,2015,2024,2024,failure,reactive,light_intervention,deferred,medium,true,pressure_test,none,490000,5,Gate valve stem packing leak detected during integrity test
-FIELD_C,Canada,INJ-C01,injector,injectivity,2015,2024,2024,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,175000,5,Second stimulation on INJ-C01 — persistent decline
+FIELD_C,Canada,INJ-C01,injector,carbonate_scaling,2015,2024,2024,degradation,preventive,rigless_intervention,deferred,medium,true,pressure_trend,PLT,175000,5,Second stimulation on INJ-C01 — persistent decline

@@ -174,7 +174,7 @@ def plot_risk_matrix(failure_prob_multiplier: float = 1.0) -> go.Figure:
         (min(5.0, 1.5 * _m**0.4), 4.8, 'Cement',       _RED),
         (min(5.0, 4.0 * _m**0.25), 2.7, 'Wellhead',    _AMBER),
         (min(5.0, 4.8 * _m**0.2),  1.2, 'Gauge',       _GREEN),
-        (min(5.0, 4.2 * _m**0.25), 2.2, 'Injectivity', _AMBER),
+        (min(5.0, 4.2 * _m**0.25), 2.2, 'Injectivity (4 sub-modes)', _AMBER),
     ]
 
     for lk, cs, label, color in components:

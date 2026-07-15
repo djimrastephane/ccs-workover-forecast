@@ -8,7 +8,10 @@ wellhead,0.50,0.60,0.75
 tree,0.45,0.55,0.70
 cement_barrier,0.10,0.25,0.45
 casing,0.15,0.30,0.45
-injectivity,0.35,0.50,0.70
+hydrate_control,0.55,0.75,0.85
+halite_plugging,0.45,0.65,0.80
+carbonate_scaling,0.35,0.55,0.70
+microbial_plugging,0.20,0.40,0.55
 ssv,0.70,0.80,0.90
 casing_valve,0.35,0.55,0.70
 control_line,0.75,0.85,0.92

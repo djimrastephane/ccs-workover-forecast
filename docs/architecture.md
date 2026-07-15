@@ -14,6 +14,7 @@ ccs-workover-forecast/
 │   │   ├── monitoring_config.csv               # Per-tier detection_prob overrides
 │   │   ├── assumption_quality.csv              # Source quality, confidence, sensitivity register
 │   │   ├── cost_assumptions.csv                # Per-event costs, CO₂ uplift, post-workover verification
+│   │   ├── co2_stream_quality.csv              # Contaminant tiers → injectivity / corrosion multipliers
 │   │   └── scenario_config.csv
 │   ├── observations/
 │   │   └── observed_events.csv                 # Real field failure/degradation events for calibration
@@ -44,7 +45,7 @@ ccs-workover-forecast/
 |---|---|---|
 | 1 — Setup | `simulation.py` · `config_loader.py` | Scenario multipliers, monitoring override, CO₂ uplift, fleet coverage patch |
 | 2 — Failure generation | `failure_generator.py` | Triangular MTTF sample per (sim, well); bathtub curve; Bernoulli draws; penetration mask |
-| 3 — Intervention decisions | `intervention_engine.py` | Barrier hierarchy; injectivity escalation; multi-failure escalation |
+| 3 — Intervention decisions | `intervention_engine.py` | Barrier hierarchy; per-mode flow-assurance escalation; multi-failure escalation |
 | 4 — Campaign scheduling | `campaign_scheduler.py` | Immediate queue; deferred batch by size or max-age; mob cost allocation |
 | 5 — Economics | `economics.py` | Per-(sim, year) cost aggregation; P10/P50/P90 lifecycle statistics |
 

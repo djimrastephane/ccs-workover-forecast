@@ -16,17 +16,27 @@ P(fail) = 1 − exp(−1 / sampled_MTTF)
 
 ---
 
-## Bathtub curve
+## Lifecycle shapes
 
-A lifecycle multiplier is applied on top of the base annual failure probability each year:
+Each component carries a `lifecycle_shape` that maps operating year to a hazard multiplier applied on top of the base annual failure probability.
+
+**`bathtub`** (default — mechanical, well-age-driven):
 
 | Phase | Years | Multiplier | Failure modes |
 |---|---|---|---|
 | Infant mortality | 1–2 | 1.5× | Installation damage, commissioning defects, poor packer setting |
 | Useful life | 3–70% of field life | 1.0× | Random, uncorrelated failures |
-| Wear-out | Final 30% of field life | 1.0× → 1.8× | Corrosion, fatigue, elastomer degradation, injectivity decline |
+| Wear-out | Final 30% of field life | 1.0× → 1.8× | Corrosion, fatigue, elastomer degradation |
 
 Wear-out multiplier: `1 + ((year − wear_start) / (life − wear_start)) × 0.8` — a linear ramp to 1.8× maximum, reflecting gradual degradation rather than a sudden cliff at end of life.
+
+**Injection-driven shapes** (geochemical flow-assurance sub-modes, DOE/NETL-2020/2634 Exhibit 3-1). These mechanisms start their clock at CO₂ injection, not well construction, so they ignore the `start_age` offset — a converted legacy well has the same hydrate/halite/scaling exposure as a new well:
+
+| Shape | Used by | Profile |
+|---|---|---|
+| `infant` | Hydrate Control | 2.0× at startup (year 1), declining linearly to 1.0× by year 5 — hydrates form at high-P/low-T startup and shutdown transients |
+| `plateau` | Halite Plugging | 0.8× → 1.2× over the first 40% of field life as near-wellbore dry-out accumulates, then holds |
+| `wear_out` | Carbonate Scaling, Microbial Plugging | 1.0× useful life, then the standard ramp to 1.8× — slow geochemical/biological accumulation, no infant phase |
 
 ### Fleet age mix (`start_age`)
 
@@ -74,7 +84,18 @@ The intervention engine applies priority rules based on `barrier_class` and `tri
 - **Safety preventive** (caught by inspection or monitoring) — deferrable; treated as planned maintenance.
 - **Production** (Tubing, Packer, Wellhead, Tree) — deferrable; batched into campaigns unless escalated.
 - **Monitoring** (Gauge, Fiber Optics) — always deferrable regardless of trigger type.
-- **Flow assurance** (Injectivity) — rigless intervention first; escalates to full workover on the second failure per well.
+- **Flow assurance** (injectivity sub-modes) — rigless intervention first; a repeat failure of the **same** persistent formation-damage mode (halite, carbonate, microbial) on the same well escalates to full workover. Hydrate Control never escalates — hydrate events are operational transients remediated at the wellhead (methanol/glycol), and recur by design after shutdowns.
+
+---
+
+## CO₂ stream quality
+
+Co-sequestered contaminants — chiefly H₂S, plus CH₄, N₂, SO₂, O₂ — act through two orthogonal multipliers set by the **CO₂ Stream Quality** sidebar tier (`co2_stream_quality.csv`):
+
+- **Injectivity multiplier** (×1.0 / ×1.3 / ×1.8) — applies to the four flow-assurance sub-modes: contaminants occupy pore space, reduce CO₂ relative permeability, and amplify near-wellbore geochemical scaling.
+- **Corrosion multiplier** (×1.0 / ×1.5 / ×2.5) — applies to casing, cement barrier, tubing, injection packer, and tubing hanger seal: H₂S forms sulphurous/carbonic acid with water, aggressively corroding carbon steel, cement, and elastomers even below 100 ppm.
+
+Both stack multiplicatively with the scenario `failure_prob_multiplier`, keeping capture-source purity separate from reservoir-fluid aggressiveness. Stream quality is a static project input (set by the capture facility), not a dynamic failure mode. Note the **High Corrosion** scenario retains its blanket 1.8× multiplier: for a sour-stream-driven case, prefer Base Case + sour tier over High Corrosion, which now represents reservoir-fluid aggressiveness (formation brine chemistry) rather than stream purity.
 
 ---
 

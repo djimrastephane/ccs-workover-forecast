@@ -122,7 +122,11 @@ _MAX_ANNUAL_PROB = {
     'tree':           0.075,
     'cement_barrier': 0.10,
     'casing':         0.075,
-    'injectivity':    0.35,
+    'injectivity':    0.35,   # legacy pre-split component (backward compat)
+    'hydrate_control':    0.70,   # 1-exp(-1/2) × 2.0 startup mult ≈ 0.72
+    'halite_plugging':    0.22,   # 1-exp(-1/5) × 1.2 plateau ≈ 0.22
+    'carbonate_scaling':  0.17,   # 1-exp(-1/10) × 1.8 wear-out ≈ 0.17
+    'microbial_plugging': 0.12,   # 1-exp(-1/15) × 1.8 wear-out ≈ 0.12
 }
 
 
@@ -333,7 +337,7 @@ def compute_heatmap_data(
     from .reliability_model import mttf_to_annual_prob, lifecycle_multiplier_vector
     import numpy as np
 
-    lc_mult = lifecycle_multiplier_vector(operating_years)
+    lc_by_shape: dict[str, np.ndarray] = {}
     rows = []
     for _, comp in component_assumptions.iterrows():
         P10 = float(comp['P10_MTTF'])
@@ -341,6 +345,11 @@ def compute_heatmap_data(
         mid = (P10 + P90) / 2.0
         base_prob = float(mttf_to_annual_prob(np.array([mid]))[0]) * failure_prob_multiplier
         base_prob = min(base_prob, 0.95)
+        shape = comp.get('lifecycle_shape', 'bathtub')
+        shape = shape if isinstance(shape, str) and shape else 'bathtub'
+        if shape not in lc_by_shape:
+            lc_by_shape[shape] = lifecycle_multiplier_vector(operating_years, shape=shape)
+        lc_mult = lc_by_shape[shape]
         for yr_idx, lm in enumerate(lc_mult):
             adj = min(base_prob * lm, 0.95)
             rows.append({

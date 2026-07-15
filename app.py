@@ -7,7 +7,7 @@ from src.simulation import run_simulation
 from src.config_loader import (
     load_component_assumptions, load_intervention_rules,
     load_cost_assumptions, load_scenario_config,
-    load_assumption_quality,
+    load_assumption_quality, load_stream_quality_config,
 )
 from src.qa import compute_qa_metrics, generate_qa_warnings
 from src.explainability import (
@@ -321,6 +321,32 @@ with st.sidebar:
         'Monte Carlo Runs', options=[100, 250, 500, 1000, 2000, 5000, 10000], value=500,
     )
 
+    _stream_cfg = load_stream_quality_config()
+    if not _stream_cfg.empty:
+        co2_stream_quality = st.selectbox(
+            'CO₂ Stream Quality',
+            options=list(_stream_cfg.index),
+            format_func=lambda t: str(_stream_cfg.loc[t, 'label']),
+            index=0,
+            help=(
+                'Purity of the injected CO₂ stream from the capture facility. '
+                'Co-sequestered contaminants (chiefly H₂S) accelerate corrosion of '
+                'casing, cement, tubing and seals, and reduce injectivity by '
+                'occupying pore space and amplifying geochemical scaling. '
+                'Static per project — set by the capture source. '
+                'Orthogonal to the scenario multiplier (reservoir-fluid aggressiveness).'
+            ),
+        )
+        _inj_m  = float(_stream_cfg.loc[co2_stream_quality, 'injectivity_multiplier'])
+        _corr_m = float(_stream_cfg.loc[co2_stream_quality, 'corrosion_multiplier'])
+        if _inj_m != 1.0 or _corr_m != 1.0:
+            st.caption(
+                f'Injectivity sub-modes ×{_inj_m:.1f} · '
+                f'corrosion-sensitive components ×{_corr_m:.1f}'
+            )
+    else:
+        co2_stream_quality = 'pipeline'
+
     st.markdown('<div class="sb-section">🔬 Intervention Threshold</div>', unsafe_allow_html=True)
     threshold_pct = st.select_slider(
         'Intervention Probability Threshold',
@@ -491,6 +517,7 @@ if run_btn:
             field_id=field_id,
             legacy_well_fraction=legacy_well_fraction,
             legacy_start_age=legacy_start_age,
+            co2_stream_quality=co2_stream_quality,
         )
         _sim_status.update(label='Simulation complete', state='complete', expanded=False)
 
@@ -523,6 +550,7 @@ if run_btn:
         first_injection_year=first_injection_year,
         legacy_well_fraction=legacy_well_fraction,
         legacy_start_age=legacy_start_age,
+        co2_stream_quality=co2_stream_quality,
     )
     narrative = generate_executive_narrative(
         failure_df, annual_forecast, campaign_log, lifecycle_summary, params)
@@ -2563,15 +2591,16 @@ Derived from the configured First Injection Year in the sidebar. Both field-life
                 'Calendar year formula inconsistency detected in trace data. '
                 'Verify the First Injection Year in the sidebar.'
             )
+    _fa_escalatable = {'injectivity', 'halite_plugging', 'carbonate_scaling', 'microbial_plugging'}
     _inj_wo_mask = (
-        (_wt_v['component'] == 'injectivity') & (_wt_v['intervention_type'] == 'full_workover')
+        _wt_v['component'].isin(_fa_escalatable) & (_wt_v['intervention_type'] == 'full_workover')
         if not _wt_v.empty else pd.Series(dtype=bool)
     )
     if _inj_wo_mask.any():
         _n_inj_wo = int(_inj_wo_mask.sum())
         st.info(
-            f'Note: Injectivity shows full workover for {_n_inj_wo} event(s) on this well — '
-            'escalated from rigless due to repeat flow-assurance failures (by design).'
+            f'Note: Injectivity sub-mode(s) show full workover for {_n_inj_wo} event(s) on this well — '
+            'escalated from rigless due to repeat failures of the same flow-assurance mode (by design).'
         )
 
     # ── Summary KPIs ──────────────────────────────────────────────────────────

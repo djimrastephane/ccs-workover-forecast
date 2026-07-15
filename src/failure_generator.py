@@ -25,7 +25,6 @@ from .reliability_model import (
     threshold_year as compute_threshold_year,
 )
 
-_INJECTOR_ONLY = {'injectivity'}
 _TRSV_ONLY = {'trsv', 'control_line'}
 
 _SEVERITY_MAP = {5: 'high', 4: 'high', 3: 'medium', 2: 'low', 1: 'low'}
@@ -41,6 +40,10 @@ _FAILURE_MODES = {
     'cement_barrier':          'micro_annulus',
     'casing':                  'integrity_loss',
     'injectivity':             'scale_plugging',
+    'hydrate_control':         'hydrate_formation',
+    'halite_plugging':         'halite_precipitation',
+    'carbonate_scaling':       'carbonate_precipitation',
+    'microbial_plugging':      'microbial_growth',
     'ssv':                     'valve_failure',
     'casing_valve':            'seal_failure',
     'control_line':            'hydraulic_leak',
@@ -48,6 +51,18 @@ _FAILURE_MODES = {
     'injection_flowmeter':     'sensor_failure',
     'annular_pressure_monitor': 'signal_loss',
 }
+
+# CO₂ stream quality sensitivity (DOE/NETL-2020/2634 §3.1.1 Exhibit 3-1).
+# Contaminants (chiefly H₂S) act through two distinct paths:
+#   injectivity-sensitive — pore-space competition, relative-permeability
+#     loss, and amplified geochemical scaling near the wellbore
+#   corrosion-sensitive — sulphurous/carbonic acid attack on carbon steel,
+#     cement, and elastomer seals
+# ('injectivity' retained for backward compat with pre-split assumption CSVs.)
+_INJECTIVITY_SENSITIVE = {'injectivity', 'hydrate_control', 'halite_plugging',
+                          'carbonate_scaling', 'microbial_plugging'}
+_CORROSION_SENSITIVE   = {'casing', 'cement_barrier', 'tubing',
+                          'packer', 'tubing_hanger'}
 
 # Annular Pressure Monitor (APM / SCP) boosts detection of cement and casing
 # failures when functioning. Values are the effective detection probability
@@ -103,6 +118,8 @@ def generate_all_failures(
     intervention_threshold: float = 0.90,
     legacy_well_fraction: float = 0.0,
     legacy_start_age: int = 15,
+    stream_injectivity_multiplier: float = 1.0,
+    stream_corrosion_multiplier: float = 1.0,
 ) -> pd.DataFrame:
     """
     Generate all failure events across n_simulations, n_wells, n_years.
@@ -116,6 +133,17 @@ def generate_all_failures(
     run) enters the simulation at legacy_start_age years on the bathtub curve
     — modelling converted legacy wells in a mixed-age fleet. The remaining
     wells start at age 0 (current behaviour).
+
+    Each component follows its own lifecycle_shape (bathtub / infant /
+    plateau / wear_out). Only the bathtub shape is well-age-driven and offset
+    by start_age; the geochemical shapes are CO₂-injection-driven and use the
+    operating year directly regardless of well age.
+
+    stream_injectivity_multiplier / stream_corrosion_multiplier scale the
+    base failure probability of _INJECTIVITY_SENSITIVE / _CORROSION_SENSITIVE
+    components respectively (CO₂ stream quality — co-sequestered
+    contaminants). Applied on top of the scenario failure_prob_multiplier,
+    keeping stream quality orthogonal to reservoir-fluid aggressiveness.
     """
     n_wells = n_injectors + n_monitoring
     well_ids = np.array(
@@ -135,12 +163,15 @@ def generate_all_failures(
         legacy_idx = rng.permutation(n_wells)[:n_legacy]
         start_ages[legacy_idx] = int(legacy_start_age)
 
-    # (n_wells, n_years) lifecycle matrix — one bathtub vector per start age
+    # (n_wells, n_years) lifecycle matrix for the bathtub shape — one vector
+    # per start age. Injection-driven shapes (infant/plateau/wear_out) are
+    # identical for all wells and broadcast per component inside the loop.
     _lc_by_age = {
         age: lifecycle_multiplier_vector(operating_years, start_age=age)
         for age in np.unique(start_ages)
     }
-    lc_mult = np.stack([_lc_by_age[a] for a in start_ages])  # (n_wells, n_years)
+    lc_bathtub = np.stack([_lc_by_age[a] for a in start_ages])  # (n_wells, n_years)
+    _lc_by_shape: dict[str, np.ndarray] = {}
 
     frames = []
 
@@ -172,6 +203,27 @@ def generate_all_failures(
         failure_mode = _FAILURE_MODES.get(comp_name, comp_name)
         injector_only = bool(comp.get('injector_only', False))
 
+        # Per-component lifecycle shape: bathtub uses the per-well (start_age
+        # offset) matrix; injection-driven shapes broadcast one vector to all wells
+        shape = comp.get('lifecycle_shape', 'bathtub')
+        shape = shape if isinstance(shape, str) and shape else 'bathtub'
+        if shape == 'bathtub':
+            lc_mult = lc_bathtub                               # (n_wells, n_years)
+        else:
+            if shape not in _lc_by_shape:
+                _lc_by_shape[shape] = lifecycle_multiplier_vector(operating_years, shape=shape)
+            lc_mult = np.broadcast_to(
+                _lc_by_shape[shape], (n_wells, operating_years)
+            )
+
+        # CO₂ stream quality: contaminants scale injectivity-sensitive and
+        # corrosion-sensitive components through separate multipliers
+        comp_prob_multiplier = failure_prob_multiplier
+        if comp_name in _INJECTIVITY_SENSITIVE:
+            comp_prob_multiplier *= stream_injectivity_multiplier
+        elif comp_name in _CORROSION_SENSITIVE:
+            comp_prob_multiplier *= stream_corrosion_multiplier
+
         # -- Sample MTTF per (simulation, well) --------------------------------
         # Each well gets its own draw so failures scatter across years rather
         # than all wells in a simulation ageing in lockstep.
@@ -180,7 +232,7 @@ def generate_all_failures(
         ).reshape(n_simulations, n_wells)                       # (n_sims, n_wells)
 
         base_prob = mttf_to_annual_prob(mttf)                   # (n_sims, n_wells)
-        base_prob = np.minimum(base_prob * failure_prob_multiplier, 0.95)
+        base_prob = np.minimum(base_prob * comp_prob_multiplier, 0.95)
 
         # -- Adjusted probability (n_sims, n_wells, n_years) ------------------
         adj_prob = np.minimum(
