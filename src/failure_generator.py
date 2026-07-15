@@ -73,6 +73,7 @@ _OUTPUT_COLUMNS = [
     'sampled_p10_mttf', 'sampled_p50_mttf', 'sampled_p90_mttf',
     'cumulative_failure_probability', 'bernoulli_draw',
     'failure_occurred', 'detected', 'detection_probability', 'threshold_triggered',
+    'start_age', 'effective_year',
 ]
 
 
@@ -100,6 +101,8 @@ def generate_all_failures(
     scssv_enabled: bool,
     rng: np.random.Generator,
     intervention_threshold: float = 0.90,
+    legacy_well_fraction: float = 0.0,
+    legacy_start_age: int = 15,
 ) -> pd.DataFrame:
     """
     Generate all failure events across n_simulations, n_wells, n_years.
@@ -108,6 +111,11 @@ def generate_all_failures(
     the same simulation have different failure rates. This prevents the
     synchronised-failure artefact where all wells in a simulation reach their
     preventive-intervention threshold in exactly the same year.
+
+    legacy_well_fraction of the fleet (chosen randomly, fixed for the whole
+    run) enters the simulation at legacy_start_age years on the bathtub curve
+    — modelling converted legacy wells in a mixed-age fleet. The remaining
+    wells start at age 0 (current behaviour).
     """
     n_wells = n_injectors + n_monitoring
     well_ids = np.array(
@@ -118,7 +126,21 @@ def generate_all_failures(
     is_monitoring = well_types == 'monitoring'
     is_injector   = ~is_monitoring
 
-    lc_mult = lifecycle_multiplier_vector(operating_years)  # (n_years,)
+    # Per-well start age: legacy wells are offset on the bathtub curve.
+    # The rng draw happens only when a legacy fraction is requested, so an
+    # all-new fleet reproduces pre-start_age results bit-for-bit at same seed.
+    start_ages = np.zeros(n_wells, dtype=int)
+    n_legacy = int(round(np.clip(legacy_well_fraction, 0.0, 1.0) * n_wells))
+    if n_legacy > 0 and legacy_start_age > 0:
+        legacy_idx = rng.permutation(n_wells)[:n_legacy]
+        start_ages[legacy_idx] = int(legacy_start_age)
+
+    # (n_wells, n_years) lifecycle matrix — one bathtub vector per start age
+    _lc_by_age = {
+        age: lifecycle_multiplier_vector(operating_years, start_age=age)
+        for age in np.unique(start_ages)
+    }
+    lc_mult = np.stack([_lc_by_age[a] for a in start_ages])  # (n_wells, n_years)
 
     frames = []
 
@@ -162,7 +184,7 @@ def generate_all_failures(
 
         # -- Adjusted probability (n_sims, n_wells, n_years) ------------------
         adj_prob = np.minimum(
-            base_prob[:, :, np.newaxis] * lc_mult[np.newaxis, np.newaxis, :],
+            base_prob[:, :, np.newaxis] * lc_mult[np.newaxis, :, :],
             0.95,
         )
 
@@ -218,7 +240,7 @@ def generate_all_failures(
                 'trigger_type':          ev_trigger,
                 'sampled_mttf':          mttf[sim_idx, well_idx],
                 'base_probability':      base_prob[sim_idx, well_idx],
-                'lifecycle_multiplier':  lc_mult[year_idx],
+                'lifecycle_multiplier':  lc_mult[well_idx, year_idx],
                 'adjusted_probability':  adj_prob[sim_idx, well_idx, year_idx],
                 'intervention_required': True,
                 'intervention_type':     intervention_type,
@@ -235,6 +257,8 @@ def generate_all_failures(
                 'detected':                        detected_arr,
                 'detection_probability':           detection_prob,
                 'threshold_triggered':             False,
+                'start_age':                       start_ages[well_idx],
+                'effective_year':                  year_idx + 1 + start_ages[well_idx],
             }))
 
         # -- Preventive events -- threshold-based (per well) ------------------
@@ -270,7 +294,7 @@ def generate_all_failures(
                 'trigger_type':          'preventive',
                 'sampled_mttf':          mttf[sim_rep, well_rep],
                 'base_probability':      base_prob[sim_rep, well_rep],
-                'lifecycle_multiplier':  lc_mult[yr_rep - 1],
+                'lifecycle_multiplier':  lc_mult[well_rep, yr_rep - 1],
                 'adjusted_probability':  adj_prob[sim_rep, well_rep, yr_rep - 1],
                 'intervention_required': True,
                 'intervention_type':     intervention_type,
@@ -287,6 +311,8 @@ def generate_all_failures(
                 'detected':                        False,
                 'detection_probability':           detection_prob,
                 'threshold_triggered':             True,
+                'start_age':                       start_ages[well_rep],
+                'effective_year':                  yr_rep + start_ages[well_rep],
             }))
 
     if not frames:

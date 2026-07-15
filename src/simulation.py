@@ -33,6 +33,8 @@ def run_simulation(
     component_penetration_rates: dict | None = None,
     co_location_discount_factor: float = 0.25,
     field_id: str | None = None,
+    legacy_well_fraction: float = 0.0,
+    legacy_start_age: int = 15,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, pd.DataFrame]:
     """
     Orchestrate the full Monte Carlo simulation pipeline.
@@ -137,6 +139,8 @@ def run_simulation(
         scssv_enabled=scssv_enabled,
         rng=rng,
         intervention_threshold=intervention_threshold,
+        legacy_well_fraction=legacy_well_fraction,
+        legacy_start_age=legacy_start_age,
     )
 
     if failure_df.empty:

@@ -165,3 +165,37 @@ jobs:
           print(f'Conservative: \${conservative/1e6:.1f}M  Base: \${base/1e6:.1f}M  High corrosion: \${high_corr/1e6:.1f}M')
           print('Scenario ordering PASSED')
           "
+
+      - name: Validate legacy fleet age offset (issue 5)
+        run: |
+          python -c "
+          import numpy as np
+          from src.reliability_model import lifecycle_multiplier_vector
+          from src.simulation import run_simulation
+
+          # start_age shifts the bathtub curve: legacy well skips infant
+          # mortality, enters the wear-out ramp immediately, caps at 1.8x
+          lc_leg = lifecycle_multiplier_vector(30, start_age=20)
+          assert lc_leg[0] == 1.0 and (lc_leg[1:] > 1.0).all(), 'legacy well not in wear-out ramp'
+          assert not np.any(lc_leg == 1.5), 'legacy well should skip infant mortality'
+          assert abs(lc_leg.max() - 1.8) < 1e-9, 'wear-out ramp must cap at 1.8x'
+
+          kw = dict(n_simulations=150, n_injectors=20, n_monitoring=5,
+                    operating_years=30, seed=42)
+          _, _, _, ls_new, _ = run_simulation(**kw, legacy_well_fraction=0.0)
+          f_mix, _, _, ls_mix, _ = run_simulation(**kw, legacy_well_fraction=0.5, legacy_start_age=15)
+          f_leg, _, _, ls_leg, _ = run_simulation(**kw, legacy_well_fraction=1.0, legacy_start_age=15)
+
+          # Mixed fleet P50 demand must sit between all-new and all-legacy bounds
+          wn, wm, wl = ls_new['p50_workovers'], ls_mix['p50_workovers'], ls_leg['p50_workovers']
+          assert wn < wm < wl, f'Mixed fleet not between bounds: {wn:.0f} / {wm:.0f} / {wl:.0f}'
+
+          # Trace columns: effective_year = operating year + start_age
+          assert (f_leg['start_age'] == 15).all(), 'all-legacy fleet should have start_age=15'
+          assert (f_leg['effective_year'] == f_leg['year'] + 15).all(), 'effective_year mismatch'
+          ages = f_mix.groupby('well_id')['start_age'].first()
+          assert set(ages.unique()) == {0, 15}, 'mixed fleet should contain both age classes'
+
+          print(f'P50 workovers: all-new={wn:.0f}  mixed-50%={wm:.0f}  all-legacy={wl:.0f}')
+          print('Legacy fleet age offset PASSED')
+          "

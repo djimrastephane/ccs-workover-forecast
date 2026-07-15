@@ -279,6 +279,38 @@ with st.sidebar:
         ),
     )
 
+    with st.expander('Fleet age mix (legacy conversions)', expanded=False):
+        st.caption(
+            'Converted legacy O&G wells enter the fleet mid-life: they skip '
+            'infant mortality and start further along the bathtub curve, '
+            'reaching the wear-out ramp earlier. 0% = greenfield fleet.'
+        )
+        legacy_pct = st.slider(
+            'Legacy Wells (%)', 0, 100, 0, step=5,
+            help=(
+                'Fraction of the fleet that are converted legacy wells. '
+                'Wells are assigned randomly (fixed per run). Combine with the '
+                'Legacy Well Conversion scenario to also apply the residual '
+                'material-incompatibility / unknown-history multiplier — use '
+                'the age offset alone for well-assessed, re-completed conversions.'
+            ),
+        )
+        legacy_start_age = st.slider(
+            'Legacy Well Age at Conversion (years)', 5, 30, 15, step=1,
+            help=(
+                'Age of legacy wells when they enter CCS service — their '
+                'starting position on the bathtub curve. Prior production years '
+                'count toward wear-out onset.'
+            ),
+        )
+        _n_legacy = round(legacy_pct / 100 * n_wells)
+        if _n_legacy > 0:
+            st.caption(
+                f'{_n_legacy}/{n_wells} wells start at age {legacy_start_age} yr · '
+                f'{n_wells - _n_legacy} start new'
+            )
+    legacy_well_fraction = legacy_pct / 100
+
     st.markdown('<div class="sb-section">⚙️ Simulation</div>', unsafe_allow_html=True)
     scenario_id = st.selectbox(
         'Scenario',
@@ -457,6 +489,8 @@ if run_btn:
             component_penetration_rates=component_penetration_rates,
             co_location_discount_factor=co_location_discount_factor,
             field_id=field_id,
+            legacy_well_fraction=legacy_well_fraction,
+            legacy_start_age=legacy_start_age,
         )
         _sim_status.update(label='Simulation complete', state='complete', expanded=False)
 
@@ -487,6 +521,8 @@ if run_btn:
         co_location_discount_factor=co_location_discount_factor,
         field_id=field_id,
         first_injection_year=first_injection_year,
+        legacy_well_fraction=legacy_well_fraction,
+        legacy_start_age=legacy_start_age,
     )
     narrative = generate_executive_narrative(
         failure_df, annual_forecast, campaign_log, lifecycle_summary, params)
@@ -2228,6 +2264,8 @@ def _render_trace():
         _disp_cols_map = {
             'year_of_field_life':         'Year',
             'calendar_year':              'Cal. Year',
+            'start_age':                  'Start Age',
+            'effective_year':             'Well Age',
             'well_id':                    'Well',
             'component':                  'Component',
             'effective_mttf':             'Eff. MTTF (yrs)',
@@ -2502,8 +2540,22 @@ Derived from the configured First Injection Year in the sidebar. Both field-life
         st.warning(f'No events recorded for {_j_well} in simulation {_j_sim}.')
         return
 
-    # ── Validation checks ─────────────────────────────────────────────────────
+    # ── Legacy well context ───────────────────────────────────────────────────
     _wt_v = _jd['wt']
+    _w_age = 0
+    if 'start_age' in _wt_v.columns and not _wt_v.empty:
+        try:
+            _w_age = int(pd.to_numeric(_wt_v['start_age'], errors='coerce').fillna(0).iloc[0])
+        except (TypeError, ValueError):
+            _w_age = 0
+    if _w_age > 0:
+        st.info(
+            f'🏗 **Converted legacy well** — entered CCS service at age **{_w_age} yr**. '
+            f'Field-life Yr 1 corresponds to well age {_w_age + 1} on the bathtub curve, '
+            'so this well skips infant mortality and reaches the wear-out ramp earlier.'
+        )
+
+    # ── Validation checks ─────────────────────────────────────────────────────
     if 'calendar_year' in _wt_v.columns and 'year_of_field_life' in _wt_v.columns:
         _expected_cal = _wt_v['year_of_field_life'] + _first_yr - 1
         if not (_wt_v['calendar_year'] == _expected_cal).all():
@@ -2592,10 +2644,16 @@ Derived from the configured First Injection Year in the sidebar. Both field-life
         _tick_yrs = list(range(1, _op_yrs + 1, 5))
         if _op_yrs not in _tick_yrs:
             _tick_yrs.append(_op_yrs)
+        if _w_age > 0:
+            _tick_text = [
+                f'Yr {y} · Age {y + _w_age}<br>(CY {_first_yr + y - 1})' for y in _tick_yrs
+            ]
+        else:
+            _tick_text = [f'Yr {y}<br>(CY {_first_yr + y - 1})' for y in _tick_yrs]
         _hfig.update_xaxes(
             tickmode='array',
             tickvals=_tick_yrs,
-            ticktext=[f'Yr {y}<br>(CY {_first_yr + y - 1})' for y in _tick_yrs],
+            ticktext=_tick_text,
         )
         _hfig.update_layout(
             height=380, yaxis_range=[0, 108],

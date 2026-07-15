@@ -122,6 +122,11 @@ def build_event_story_card(row: pd.Series) -> dict:
     comp_key = str(row.get('component', ''))
     year_f   = int(row.get('year_of_field_life', 0))
     cal_yr   = int(row.get('calendar_year', year_f))
+    try:
+        _eff = row.get('effective_year')
+        eff_yr = int(_eff) if pd.notna(_eff) else year_f
+    except (TypeError, ValueError):
+        eff_yr = year_f
     barrier  = str(row.get('barrier_class', ''))
     trigger  = str(row.get('trigger_type', ''))
     fail_occ = bool(row.get('failure_occurred', False))
@@ -165,8 +170,9 @@ def build_event_story_card(row: pd.Series) -> dict:
     if pd.notna(fp):
         parts.append(f"annual failure probability was {float(fp) * 100:.1f}%")
     if pd.notna(btub) and float(btub) != 1.0:
-        phase = 'infant mortality' if year_f <= 3 else 'wear-out'
-        parts.append(f"the bathtub multiplier was {float(btub):.2f}× ({phase} phase)")
+        phase = 'infant mortality' if eff_yr <= 3 else 'wear-out'
+        phase_at = f'{phase} phase' if eff_yr == year_f else f'{phase} phase at well age {eff_yr}'
+        parts.append(f"the bathtub multiplier was {float(btub):.2f}× ({phase_at})")
     if pd.notna(cum_fp):
         parts.append(f"cumulative failure probability had reached {float(cum_fp) * 100:.1f}%")
     if pd.notna(draw) and pd.notna(fp):

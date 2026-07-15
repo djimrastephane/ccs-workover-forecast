@@ -30,7 +30,7 @@ def mttf_to_annual_prob(mttf: np.ndarray) -> np.ndarray:
 
 # ── Bathtub curve ─────────────────────────────────────────────────────────────
 
-def lifecycle_multiplier_vector(operating_years: int) -> np.ndarray:
+def lifecycle_multiplier_vector(operating_years: int, start_age: int = 0) -> np.ndarray:
     """
     Return shape (operating_years,) of lifecycle multipliers.
 
@@ -41,18 +41,24 @@ def lifecycle_multiplier_vector(operating_years: int) -> np.ndarray:
     Phase 3 — Wear-out (final 30% of life): increasing from 1.0× to 1.8×
       Corrosion, fatigue, elastomer degradation, injectivity decline.
       Linear ramp avoids a cliff at end of life; models gradual degradation.
+
+    start_age offsets the well's position on the bathtub curve: a converted
+    legacy well with start_age=20 evaluates effective years 21..20+N instead
+    of 1..N, so it skips infant mortality and enters the wear-out ramp early.
+    Phase boundaries stay anchored to the field design life (operating_years);
+    effective years beyond design life hold at the 1.8× wear-out ceiling.
     """
     wear_start = max(3, int(operating_years * 0.70))
     mult = np.ones(operating_years)
     for yr in range(operating_years):
-        year = yr + 1  # 1-based
+        year = yr + 1 + start_age  # effective age on the bathtub curve, 1-based
         if year <= 2:
             mult[yr] = 1.5
         elif year < wear_start:
             mult[yr] = 1.0
         else:
             frac = (year - wear_start) / max(operating_years - wear_start, 1)
-            mult[yr] = 1.0 + frac * 0.8   # linear ramp, max 1.8× at end of life
+            mult[yr] = 1.0 + min(frac, 1.0) * 0.8   # linear ramp, capped at 1.8×
     return mult
 
 

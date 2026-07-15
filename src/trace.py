@@ -62,14 +62,15 @@ def build_simulation_trace(
     # Ensure all expected trace columns exist (fill missing ones)
     for col in ['bernoulli_draw', 'cumulative_failure_probability',
                 'failure_occurred', 'detected', 'detection_probability',
-                'threshold_triggered', 'sampled_p10_mttf', 'sampled_p50_mttf', 'sampled_p90_mttf']:
+                'threshold_triggered', 'sampled_p10_mttf', 'sampled_p50_mttf', 'sampled_p90_mttf',
+                'start_age', 'effective_year']:
         if col not in trace.columns:
             trace[col] = pd.NA
 
     # Canonical column order for the trace
     ordered_cols = [
         'simulation_id', 'field_id', 'well_id', 'well_type', 'component', 'display_name',
-        'year_of_field_life', 'calendar_year',
+        'year_of_field_life', 'calendar_year', 'start_age', 'effective_year',
         'sampled_p10_mttf', 'sampled_p50_mttf', 'sampled_p90_mttf', 'effective_mttf',
         'bathtub_multiplier', 'annual_failure_probability', 'cumulative_failure_probability',
         'bernoulli_draw', 'failure_occurred', 'detected', 'detection_probability',

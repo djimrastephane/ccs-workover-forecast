@@ -28,6 +28,16 @@ A lifecycle multiplier is applied on top of the base annual failure probability 
 
 Wear-out multiplier: `1 + ((year − wear_start) / (life − wear_start)) × 0.8` — a linear ramp to 1.8× maximum, reflecting gradual degradation rather than a sudden cliff at end of life.
 
+### Fleet age mix (`start_age`)
+
+Converted legacy O&G wells enter the simulation mid-life rather than at Year 1. The **Fleet age mix** sidebar controls set a legacy fraction and a conversion age; that fraction of wells (chosen randomly, fixed per run) is offset on the bathtub curve:
+
+```
+effective_year = operating_year + start_age
+```
+
+A well converted at age 20 in a 30-year field skips infant mortality entirely and enters the wear-out ramp immediately (wear_start = year 21). Phase boundaries stay anchored to the field design life; effective years beyond design life hold at the 1.8× ceiling. MTTF sampling is unchanged — the offset shifts *where* on the hazard curve the well operates, not the underlying component reliability. For worst-case conversions with unknown construction history, combine the age offset with the **Legacy Well Conversion** scenario multiplier; for well-assessed, fully re-completed conversions use the age offset alone.
+
 ---
 
 ## Detection, monitoring programme, and trigger types
